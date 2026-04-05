@@ -125,6 +125,7 @@ if st.session_state.analisis_realizado:
         defensas = "OVER SÓLIDO" if (res["lc_l"] > 1.2 and res["lc_v"] > 1.2) else "EQUILIBRADO"
         st.markdown("### 🎯 Patrón visual clave")
         st.markdown(f"* Anotados combinados: **{(res['la'] + res['va']):.1f}**")
+        st.markdown(f"* Concedidos combinados: **{(res['lc_l'] + res['lc_v']):.1f}**")
         st.markdown(f"* Ambas defensas permeables = **{defensas}**")
         st.markdown(f"* Desbalance/Equilibrio → **{pico} goles pico probable.**")
         st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
