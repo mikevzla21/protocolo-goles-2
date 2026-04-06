@@ -162,31 +162,38 @@ if st.session_state.analisis_realizado:
             c_o15 = cq3.number_input("Cuota Over 1.5 Goles", 1.0, 5.0, 1.20, key="key_c_o15")
 
             if st.button("ANALIZAR SINCRO", key="key_btn_sincro"):
-                # --- CASO INERCIA BAJA (MENOS DE 1.5) ---
+                # --- VETO DE INERCIA BAJA (< 1.5) ---
                 if rel < 1.5:
+                    st.error(f"🚨 **ALERTA DE INERCIA:** Conflicto detectado ({rel:.2f}).")
                     if f_tipo == "1.5":
-                        st.error(f"🚨 **ALERTA DE INERCIA:** Aunque el patrón es 1.5, la relación A/C es pobre ({rel:.2f}).")
-                        st.success("**RECOMENDACIÓN: Under 2.5/3.5 sin combinar con córners**")
+                        st.success(f"**RECOMENDACIÓN: Under 2.5/3.5 sin combinar con córners**")
                     elif f_tipo == "2.5":
-                        st.error(f"🚨 **ALERTA DE INERCIA:** Conflicto detectado. El filtro marca 2.5 pero la inercia es baja ({rel:.2f}).")
-                        st.success("**RECOMENDACIÓN: Under 3.5 sin combinar con córners**")
-                
-                # --- CASO FLUJO NORMAL (INERCIA >= 1.5) ---
-                elif f_tipo == "2.5":
-                    if c_o15 <= 1.22:
-                        st.success("✅ SINCRO ÉXITO: Flujo validado para Over 2.5.")
-                        if es_liga: st.success("**RECOMENDACIÓN: Over 2.5 combinado con over de córners 'X-3'**")
-                        else: st.success("**RECOMENDACIÓN: Over 2.5 sin combinar con over de córners**")
-                    elif 1.23 <= c_o15 <= 1.33:
-                        st.error("🚨 CONFLICTO: Cuota alta para Over 2.5.")
-                        if es_liga: st.success(f"**Recomendación: {rec_ac} combinado con over de córners 'X-3'**")
-                        else: st.success(f"**Recomendación: {rec_ac} sin combinar con córners**")
+                        st.success(f"**RECOMENDACIÓN: Under 3.5 sin combinar con córners**")
 
-                elif f_tipo in ["RIESGO_15", "RIESGO_25", "1.5"] or pico_2:
+                # --- VETO DE INERCIA EQUILIBRIO (1.5 - 2.0) PARA PATRÓN 2.5 ---
+                elif 1.5 <= rel < 2.0 and f_tipo == "2.5":
+                    st.error(f"🚨 **ALERTA DE INERCIA:** Conflicto detectado (Equilibrio {rel:.2f}).")
                     if c_o15 <= 1.22:
-                        st.error("🚨 Recomendación: No operar 1.5 goles. Riesgo latente por recompensa no compensable")
-                    elif 1.23 <= c_o15 <= 1.33:
-                        if es_liga: st.success(f"**Recomendación: {rec_ac} combinado con over de córners 'X+4 riesgoso'**")
-                        else: st.success(f"**Recomendación: {rec_ac} sin combinar con córners**")
+                        st.success(f"**RECOMENDACIÓN: {rec_ac} sin combinar con córners**")
+                    else:
+                        st.warning("Recomendación: Cuota 1.5 alta para inercia de equilibrio. Evaluar No Operar.")
+
+                # --- ESCENARIO DE SATURACIÓN (>= 2.0) ---
+                elif rel >= 2.0:
+                    if f_tipo == "2.5":
+                        if c_o15 <= 1.22:
+                            st.success("✅ SINCRO ÉXITO: Flujo validado para Over 2.5.")
+                            if es_liga: st.success("**RECOMENDACIÓN: Over 2.5 combinado con over de córners 'X-3'**")
+                            else: st.success("**RECOMENDACIÓN: Over 2.5 sin combinar con over de córners**")
+                        elif c_o15 >= 1.23:
+                            st.error("🚨 CONFLICTO: Cuota alta para Over 2.5 en Saturación.")
+                            st.success("**RECOMENDACIÓN: Under 4.5 goles**")
+                    
+                    elif f_tipo in ["1.5", "RIESGO_15", "RIESGO_25"] or pico_2:
+                        if c_o15 <= 1.22:
+                            st.error("🚨 Recomendación: No operar 1.5 goles. Riesgo latente.")
+                        else:
+                            if es_liga: st.success(f"**Recomendación: {rec_ac} combinado con over de córners 'X+4 riesgoso'**")
+                            else: st.success(f"**Recomendación: {rec_ac} sin combinar con córners**")
 
     st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_limpiar")
