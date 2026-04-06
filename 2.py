@@ -122,10 +122,28 @@ if st.session_state.analisis_realizado:
         </div>""", unsafe_allow_html=True)
 
     with c2:
-        defensas = "OVER SÓLIDO" if (res["lc_l"] > 1.2 and res["lc_v"] > 1.2) else "EQUILIBRADO"
+        sum_a = res['la'] + res['va']
+        sum_c = res['lc_l'] + res['lc_v']
+        rel = sum_a / (sum_c if sum_c > 0 else 0.1)
+        
+        if rel < 1.5:
+            txt_ac = f"**{sum_a:.1f} / {sum_c:.1f}** - Relación = **{rel:.2f}** (Inercia baja < 1.5)"
+            rec_ac = "**Under 2.5/3.5 goles**"
+            defensas = "INERCIA BAJA"
+        elif 1.5 <= rel < 2.0:
+            txt_ac = f"**{sum_a:.1f} / {sum_c:.1f}** - Relación = **{rel:.2f}** (Equilibrio >= 1.5 < 2.00)"
+            rec_ac = "**Over 1.5 / Under 3.5 goles**"
+            defensas = "EQUILIBRADO"
+        else:
+            txt_ac = f"**{sum_a:.1f} / {sum_c:.1f}** - Relación = **{rel:.2f}** (Saturación >= 2.00)"
+            rec_ac = "**Over 2.5 goles**"
+            defensas = "OVER SÓLIDO"
+
         st.markdown("### 🎯 Patrón visual clave")
-        st.markdown(f"* Anotados combinados: **{(res['la'] + res['va']):.1f}**")
-        st.markdown(f"* Concedidos combinados: **{(res['lc_l'] + res['lc_v']):.1f}**")
+        st.markdown(f"* Anotados combinados: **{sum_a:.1f}**")
+        st.markdown(f"* Concedidos combinados: **{sum_c:.1f}**")
+        st.markdown(f"* Relación A/C: {txt_ac}")
+        st.markdown(f"* Recomendación táctica: {rec_ac}")
         st.markdown(f"* Ambas defensas permeables = **{defensas}**")
         st.markdown(f"* Desbalance/Equilibrio → **{pico} goles pico probable.**")
         st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
@@ -144,23 +162,31 @@ if st.session_state.analisis_realizado:
             c_o15 = cq3.number_input("Cuota Over 1.5 Goles", 1.0, 5.0, 1.20, key="key_c_o15")
 
             if st.button("ANALIZAR SINCRO", key="key_btn_sincro"):
-                if f_tipo == "2.5":
+                # --- CASO INERCIA BAJA (MENOS DE 1.5) ---
+                if rel < 1.5:
+                    if f_tipo == "1.5":
+                        st.error(f"🚨 **ALERTA DE INERCIA:** Aunque el patrón es 1.5, la relación A/C es pobre ({rel:.2f}).")
+                        st.success("**RECOMENDACIÓN: Under 2.5/3.5 sin combinar con córners**")
+                    elif f_tipo == "2.5":
+                        st.error(f"🚨 **ALERTA DE INERCIA:** Conflicto detectado. El filtro marca 2.5 pero la inercia es baja ({rel:.2f}).")
+                        st.success("**RECOMENDACIÓN: Under 3.5 sin combinar con córners**")
+                
+                # --- CASO FLUJO NORMAL (INERCIA >= 1.5) ---
+                elif f_tipo == "2.5":
                     if c_o15 <= 1.22:
                         st.success("✅ SINCRO ÉXITO: Flujo validado para Over 2.5.")
-                        if es_liga:
-                            st.success("**RECOMENDACIÓN: Over 2.5 combinado con over de córners 'X-3'**")
-                        else:
-                            st.success("**RECOMENDACIÓN: Over 2.5 sin combinar con over de córners**")
+                        if es_liga: st.success("**RECOMENDACIÓN: Over 2.5 combinado con over de córners 'X-3'**")
+                        else: st.success("**RECOMENDACIÓN: Over 2.5 sin combinar con over de córners**")
                     elif 1.23 <= c_o15 <= 1.33:
                         st.error("🚨 CONFLICTO: Cuota alta para Over 2.5.")
-                        if es_liga: st.success("**Recomendación: Under 3.5 goles combinado con over de córners 'X+3'**")
-                        else: st.success("**Recomendación: Under 3.5 goles sin combinar con córners**")
+                        if es_liga: st.success(f"**Recomendación: {rec_ac} combinado con over de córners 'X-3'**")
+                        else: st.success(f"**Recomendación: {rec_ac} sin combinar con córners**")
 
                 elif f_tipo in ["RIESGO_15", "RIESGO_25", "1.5"] or pico_2:
                     if c_o15 <= 1.22:
                         st.error("🚨 Recomendación: No operar 1.5 goles. Riesgo latente por recompensa no compensable")
                     elif 1.23 <= c_o15 <= 1.33:
-                        if es_liga: st.success("**Recomendación: Under 3.5 goles combinado con over de córners 'X+3'**")
-                        else: st.success("**Recomendación: Under 3.5 goles sin combinar con córners**")
+                        if es_liga: st.success(f"**Recomendación: {rec_ac} combinado con over de córners 'X+4 riesgoso'**")
+                        else: st.success(f"**Recomendación: {rec_ac} sin combinar con córners**")
 
     st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_limpiar")
