@@ -7,23 +7,20 @@ import os
 import telebot
 
 # --- CONFIGURACIÓN DE SEGURIDAD Y TELEGRAM ---
-# Actualizado con tu nueva Key Directa de API-Sports (100/día)
 try:
-    # Intenta leer desde los Secrets de Streamlit (Para la nube)
     MI_KEY_PRIVADA = st.secrets["MI_KEY_PRIVADA"]
     TOKEN_TELEGRAM = st.secrets["TOKEN_TELEGRAM"]
     CHAT_ID_CANAL = st.secrets["CHAT_ID_CANAL"]
 except:
-    # Si falla (porque estás en tu PC), usa los valores directos
     MI_KEY_PRIVADA = "7a7a86dd262319eb7c938354c20c7215"
     TOKEN_TELEGRAM = "8331811774:AAEuXEMABQE_uH4DZEovQXaiP6uG_3bqrgM"
     CHAT_ID_CANAL = "-1003959034940"
+
 bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
 
 # 1. Configuración de página e Interfaz
 st.set_page_config(page_title="Analizador Miguel", layout="wide", page_icon="⚽")
 
-# Inicializar memoria de ligas para escalabilidad
 if 'memoria_ligas' not in st.session_state:
     st.session_state.memoria_ligas = {}
 
@@ -55,7 +52,7 @@ def guardar_memoria_bot(datos):
 
 memoria_temp = cargar_memoria_bot()
 
-# CSS Original (SIN CAMBIOS)
+# CSS Original
 st.markdown("""
     <style>
     @media (max-width: 640px) {
@@ -63,16 +60,13 @@ st.markdown("""
     }
     .boton-rojo>div>button { background-color: #e74c3c !important; color: white !important; font-weight: bold !important; border: 2px solid #c0392b !important; }
     .alerta-cuota { background-color: #ff9800; color: white; padding: 12px; border-radius: 8px; font-weight: bold; text-align: center; margin-bottom: 20px; border: 2px solid #e67e22; font-size: 1.1em; }
-    
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { background-color: #1e1e1e; border-radius: 5px 5px 0 0; color: white; padding: 10px 20px; }
-    
     .stTabs [data-baseweb="tab"]:nth-child(1)[aria-selected="true"] { border-bottom: 4px solid #00ff00 !important; background-color: #2e2e2e !important; }
     .stTabs [data-baseweb="tab"]:nth-child(2)[aria-selected="true"] { border-bottom: 4px solid #ff0000 !important; background-color: #2e2e2e !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DICCIONARIO DE NIVELES Y COLORES ---
 NIVELES_CONFIG = {
     "🟢 Profesional (1ra)": "🟢",
     "🟡 Ascenso (2da/3ra)": "🟡",
@@ -81,43 +75,24 @@ NIVELES_CONFIG = {
     "⚪ Especial (Fem/Amat/U23)": "⚪"
 }
 
-# --- LÓGICA DE ASIGNACIÓN ACTUALIZADA CON TUS LIGAS ---
 def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     if liga_nombre in st.session_state.memoria_ligas:
         return st.session_state.memoria_ligas[liga_nombre]
-
     nombre_full = (liga_nombre + " " + pais_nombre).lower()
     equipos_full = (equipo_h + " " + equipo_a).lower()
-    
-    # 1. ESPECIAL / FEMENINO (Blanco ⚪)
     KEYWORDS_FEM = ["women", "femenino", "femenil", "nwsl", "wsl", "liga f", "première ligue", "shebelieves", "gold cup", "w champions cup"]
     if any(x in nombre_full or x in equipos_full for x in KEYWORDS_FEM + ["u17", "u19", "u20", "u21", "u22", "u23", "amateur", "reserve", "youth", "ncaa"]):
         return "⚪"
-    
-    # 2. PROFESIONAL ÉLITE (Verde 🟢)
-    elite_keywords = [
-        "premier league", "bundesliga", "serie a", "laliga", "la liga", "ligue 1", 
-        "super lig", "trendyol süper lig", "eredivisie", "futve", "liga mx", "dimayor", "primera a", 
-        "liga profesional", "brasileiro serie a", "carioca", "paulista", "liga 1", 
-        "liga pro", "liga portugal", "betclic", "saudi pro league", "pro league", "jupiler",
-        "ekstraklasa", "parva liga", "superliga româniei", "liga i"
-    ]
-    
+    elite_keywords = ["premier league", "bundesliga", "serie a", "laliga", "la liga", "ligue 1", "super lig", "trendyol süper lig", "eredivisie", "futve", "liga mx", "dimayor", "primera a", "liga profesional", "brasileiro serie a", "carioca", "paulista", "liga 1", "liga pro", "liga portugal", "betclic", "saudi pro league", "pro league", "jupiler", "ekstraklasa", "parva liga", "superliga româniei", "liga i"]
     if any(x in nombre_full for x in elite_keywords) and not any(y in nombre_full for y in ["second", "2. division", "segunda", "division b"]):
         return "🟢"
-
-    # 3. ASCENSO (Amarillo 🟡)
     ascenso_keywords = ["championship", "2. bundesliga", "serie b", "laliga 2", "la liga 2", "hypermotion", "league one", "segunda"]
     if any(x in nombre_full for x in ascenso_keywords):
         return "🟡"
-
-    # 4. COPAS / TORNEOS (Azul 🔵)
     if any(x in nombre_full for x in ["cup", "trophy", "copa", "fa cup", "pokal", "libertadores", "sudamericana", "champions league", "playoffs"]):
         return "🔵"
-        
     return "🟠"
 
-# --- MOTOR LÓGICO MAESTRO ---
 def motor_logico_maestro(l_total):
     matriz = {
         2.61: (84.0, 57.0, "A"), 2.71: (86.0, 59.0, "B"), 3.54: (93.0, 71.0, "C/K"),
@@ -142,53 +117,32 @@ def motor_logico_maestro(l_total):
     o15_f, o25_f, letra = matriz[ref]
     return max(1, o15_f), max(1, o25_f), l_total, letra
 
-# --- FUNCIÓN API ACTUALIZADA: CONEXIÓN DIRECTA API-SPORTS ---
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
     f_str = fecha_obj.strftime("%Y-%m-%d")
-    
-    # URL Directa de API-Sports (No RapidAPI)
     url = "https://v3.football.api-sports.io/fixtures"
-    
-    headers = {
-        'x-apisports-key': MI_KEY_PRIVADA
-    }
+    headers = {'x-apisports-key': MI_KEY_PRIVADA}
     params = {"date": f_str}
-
-    # Países permitidos para filtrar ruido
-    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", 
-                  "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", 
-                  "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey"]
+    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey"]
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200:
             data = response.json()
             eventos = data.get('response', [])
-            
-            if data.get('errors'):
-                st.error(f"Error de API: {data['errors']}")
-                return []
-
             lista_final = []
             tz_local = pytz.timezone(zona_horaria)
-            
             for ev in eventos:
-                # Mapeo de campos ajustado a la nueva estructura de API-Sports
                 liga_nombre = ev.get('league', {}).get('name', 'Desconocida')
                 pais_nombre = ev.get('league', {}).get('country', 'Internacional')
                 h = ev.get('teams', {}).get('home', {}).get('name', 'Local')
                 a = ev.get('teams', {}).get('away', {}).get('name', 'Visita')
-                
                 nivel_actual = asignar_color_nivel(liga_nombre, pais_nombre, h, a)
-                
                 if nivel_actual in ["🟢", "🟡", "🔵", "⚪"] or pais_nombre in PAISES_TOP:
                     status_short = ev.get('fixture', {}).get('status', {}).get('short')
                     if status_short in ['FT', 'AET', 'PEN']: continue
-                    
                     ts = ev.get('fixture', {}).get('timestamp', 0)
                     hora_str = datetime.fromtimestamp(ts, pytz.utc).astimezone(tz_local).strftime("%H:%M")
                     desc = ev.get('fixture', {}).get('status', {}).get('long', 'Disponible')
-                    
                     lista_final.append({
                         "id": ev.get('fixture', {}).get('id'), 
                         "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
@@ -196,7 +150,6 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
                         "pais": pais_nombre, "h": h, "a": a, "desc": desc, "hora": hora_str,
                         "color": nivel_actual
                     })
-            
             lista_final.sort(key=lambda x: (not x['live'], x['color'] != "🟢", x['ts']))
             return lista_final
         return []
@@ -204,43 +157,37 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
         st.error(f"Error de conexión: {e}")
         return []
 
-# --- LÓGICA DE ENVÍO TELEGRAM ---
 def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
     ahora = datetime.now(pytz.timezone(tz_ref))
     fecha_hoy = ahora.strftime("%Y-%m-%d")
-
     if memoria["fecha_actual"] != fecha_hoy:
         memoria["ultimo_lote"] = 0
         memoria["fecha_actual"] = fecha_hoy
         memoria["enviados"] = []
-
     memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    
     if not partidos_para_enviar:
-        st.info("No hay partidos nuevos para este lote.")
         return
-
-    mensaje = f"📦 *{memoria['ultimo_lote']}er Lote de Escaneo*\n"
-    mensaje += f"📅 {ahora.strftime('%d/%m/%Y %H:%M')}\n"
-    mensaje += "----------------------------------\n\n"
-
+    mensaje = f"📦 *{memoria['ultimo_lote']}er Lote de Escaneo*\n📅 {ahora.strftime('%d/%m/%Y %H:%M')}\n----------------------------------\n\n"
     for p in partidos_para_enviar[:12]:
-        mensaje += f"⚽ *{p['h']} vs {p['a']}*\n"
-        mensaje += f"🏆 {p['liga']} ({p['color']})\n"
-        mensaje += f"⏰ Hora: {p['hora']}\n\n"
+        mensaje += f"⚽ *{p['h']} vs {p['a']}*\n🏆 {p['liga']} ({p['color']})\n⏰ Hora: {p['hora']}\n\n"
         memoria["enviados"].append(p['id'])
-
     mensaje += "----------------------------------\n"
     mensaje += f"📊 Acertados: {memoria['acertados']} | Fallados: {memoria['fallados']}"
-
     try:
         bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
         guardar_memoria_bot(memoria)
-        st.success(f"Lote {memoria['ultimo_lote']} enviado a Telegram.")
-    except Exception as e:
-        st.error(f"Error Telegram: {e}")
+    except Exception as e: pass
+
+# --- FUNCIÓN DE INTEGRACIÓN PARA GITHUB ---
+def ejecutar_analisis_automatico():
+    """Función que une API + Filtros + Telegram"""
+    tz_defecto = "America/Caracas"
+    hoy = datetime.now(pytz.timezone(tz_defecto))
+    partidos = buscar_partidos_fecha(hoy, tz_defecto)
+    if partidos:
+        enviar_lote_automatico(partidos, tz_defecto)
 
 # --- INTERFAZ ---
 st.write("### ⚽ ANALIZADOR MIGUEL")
@@ -255,7 +202,6 @@ def limpiar_pantalla():
 
 tab_calc, tab_api = st.tabs(["📊 Calculadora Manual", "🚀 Escáner 24/7"])
 
-# --- LÓGICA CALCULADORA ---
 with st.sidebar:
     st.header("⚙️ Parámetros de entrada")
     tipo_p = st.selectbox("Tipo de Partido", ["Liga", "Torneo", "Campo Neutral / Amistoso"])
@@ -337,7 +283,6 @@ with tab_calc:
                     else: st.info("Evaluar mercado manual. Cuota o Inercia fuera de rango óptimo.")
         st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_clr")
 
-# --- PESTAÑA ESCÁNER ---
 with tab_api:
     c_api1, c_api2 = st.columns(2)
     with c_api1: f_input = st.date_input("Selecciona fecha", datetime.now(), key="f_input")
@@ -388,7 +333,6 @@ with tab_api:
                 txt = f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']} ({p['desc']})"
                 st.write(txt)
 
-# --- BLOQUE DE AUTOMATIZACIÓN INFO ---
 st.markdown("---")
 with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
     mem = cargar_memoria_bot()
@@ -398,3 +342,9 @@ with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
         guardar_memoria_bot({"ultimo_lote": 0, "fecha_actual": "", "enviados": [], "acertados": 0, "fallados": 0, "patrones_fallidos": {}, "memoria_ligas": {}})
         st.session_state.memoria_ligas = {}
         st.rerun()
+
+# --- BLOQUE DE EJECUCIÓN AUTOMÁTICA (ORDEN DEL SERVIDOR) ---
+if __name__ == "__main__":
+    # Si detecta que está en un entorno de GitHub Actions o similar
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        ejecutar_analisis_automatico()
