@@ -1,0 +1,28 @@
+name: Escaneo Centinela
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # Esto significa: cada 3 horas exactas
+  workflow_dispatch:      # Esto te permite darle a un botón y ejecutarlo cuando quieras
+
+jobs:
+  escaneo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Instalar librerias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar Analizador
+        env:
+          MI_KEY_PRIVADA: ${{ secrets.MI_KEY_PRIVADA }}
+          TOKEN_TELEGRAM: ${{ secrets.TOKEN_TELEGRAM }}
+          CHAT_ID_CANAL: ${{ secrets.CHAT_ID_CANAL }}
+        run: python 2.py
