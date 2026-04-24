@@ -52,7 +52,19 @@ def guardar_memoria_bot(datos):
 
 memoria_temp = cargar_memoria_bot()
 
-# CSS Original
+# --- FUNCIÓN INTERNA DE STATS (SÓLO LÓGICA) ---
+def obtener_stats_maestras(team_id, league_id):
+    url = "https://v3.football.api-sports.io/teams/statistics"
+    headers = {'x-apisports-key': MI_KEY_PRIVADA}
+    params = {"league": league_id, "season": 2025, "team": team_id}
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=10).json()
+        f = r['response']['goals']['for']['average']['total']
+        a = r['response']['goals']['against']['average']['total']
+        return float(f), float(a)
+    except: return 1.5, 1.0
+
+# CSS Original (INTACTO)
 st.markdown("""
     <style>
     @media (max-width: 640px) {
@@ -145,6 +157,9 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
                     desc = ev.get('fixture', {}).get('status', {}).get('long', 'Disponible')
                     lista_final.append({
                         "id": ev.get('fixture', {}).get('id'), 
+                        "h_id": ev.get('teams', {}).get('home', {}).get('id'),
+                        "a_id": ev.get('teams', {}).get('away', {}).get('id'),
+                        "l_id": ev.get('league', {}).get('id'),
                         "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
                         "ts": ts, "liga": liga_nombre,
                         "pais": pais_nombre, "h": h, "a": a, "desc": desc, "hora": hora_str,
@@ -165,31 +180,46 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         memoria["ultimo_lote"] = 0
         memoria["fecha_actual"] = fecha_hoy
         memoria["enviados"] = []
+    
     memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    if not partidos_para_enviar:
-        return
-    mensaje = f"📦 *{memoria['ultimo_lote']}er Lote de Escaneo*\n📅 {ahora.strftime('%d/%m/%Y %H:%M')}\n----------------------------------\n\n"
-    for p in partidos_para_enviar[:12]:
-        mensaje += f"⚽ *{p['h']} vs {p['a']}*\n🏆 {p['liga']} ({p['color']})\n⏰ Hora: {p['hora']}\n\n"
-        memoria["enviados"].append(p['id'])
-    mensaje += "----------------------------------\n"
-    mensaje += f"📊 Acertados: {memoria['acertados']} | Fallados: {memoria['fallados']}"
-    try:
-        bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
-        guardar_memoria_bot(memoria)
-    except Exception as e: pass
+    if not partidos_para_enviar: return
 
-# --- FUNCIÓN DE INTEGRACIÓN PARA GITHUB ---
+    # Lógica Centinela: Filtrar Búnkeres (sin cambiar estética del mensaje)
+    mensaje = f"📦 *{memoria['ultimo_lote']}er Lote de Escaneo*\n📅 {ahora.strftime('%d/%m/%Y %H:%M')}\n----------------------------------\n\n"
+    enviados_count = 0
+
+    for p in partidos_para_enviar:
+        if enviados_count >= 12: break
+        
+        # Consultar stats solo para el bot automático
+        fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+        fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+        
+        o15, o25, lt, letra = motor_logico_maestro(((fh + av)/2) + ((fv + ah)/2))
+        
+        # Filtro de seguridad (Solo enviamos los que cumplen el patrón)
+        if o15 >= 84.0:
+            mensaje += f"⚽ *{p['h']} vs {p['a']}*\n🏆 {p['liga']} ({p['color']})\n⏰ Hora: {p['hora']}\n🎯 Búnker: {o15}% (Letra {letra})\n\n"
+            memoria["enviados"].append(p['id'])
+            enviados_count += 1
+
+    if enviados_count > 0:
+        mensaje += "----------------------------------\n"
+        mensaje += f"📊 Acertados: {memoria['acertados']} | Fallados: {memoria['fallados']}"
+        try:
+            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+            guardar_memoria_bot(memoria)
+        except: pass
+
 def ejecutar_analisis_automatico():
-    """Función que une API + Filtros + Telegram"""
     tz_defecto = "America/Caracas"
     hoy = datetime.now(pytz.timezone(tz_defecto))
     partidos = buscar_partidos_fecha(hoy, tz_defecto)
     if partidos:
         enviar_lote_automatico(partidos, tz_defecto)
 
-# --- INTERFAZ ---
+# --- INTERFAZ (RESTABLECIDA AL 100%) ---
 st.write("### ⚽ ANALIZADOR MIGUEL")
 
 if 'analisis_realizado' not in st.session_state:
@@ -343,8 +373,6 @@ with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
         st.session_state.memoria_ligas = {}
         st.rerun()
 
-# --- BLOQUE DE EJECUCIÓN AUTOMÁTICA (ORDEN DEL SERVIDOR) ---
 if __name__ == "__main__":
-    # Si detecta que está en un entorno de GitHub Actions o similar
     if os.getenv("GITHUB_ACTIONS") == "true":
         ejecutar_analisis_automatico()
