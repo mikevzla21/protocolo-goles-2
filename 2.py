@@ -256,10 +256,16 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         o15, o25, lt, letra = motor_logico_maestro(((fh + av)/2) + ((fv + ah)/2))
         p_val = round(o25)
         etiq_v = ""
-        # Lógica de etiquetas de Value
-        if p_val in [57, 58, 59, 65, 72, 73]: etiq_v = "🔥 *VALUE SÓLIDO (1.5)*\n"
-        elif 61 <= p_val <= 64: etiq_v = "🔥 *VALUE SÓLIDO (2.5)*\n"
-        elif p_val in [70, 71, 74, 60]: etiq_v = "⚠️ *VALUE RIESGOSO*\n"
+        # Lógica de etiquetas de Value (CORREGIDA)
+        if 57 <= p_val <= 60 or p_val in [65, 72, 73]: 
+            etiq_v = "🔥 *VALUE SÓLIDO (1.5)*\n"
+        elif 61 <= p_val <= 64: 
+            etiq_v = "🔥 *VALUE SÓLIDO (2.5)*\n"
+        elif p_val >= 70: # Aquí cubres 70, 71, 74 y cualquier valor alto
+            etiq_v = "⚠️ *VALUE RIESGOSO*\n"
+        else:
+            # Opción de seguridad: que te diga el número si no es ninguna de las anteriores
+            etiq_v = f"📊 *ANÁLISIS NEUTRAL ({p_val})*\n"
 
         # Preparamos los datos para el envío
         stats_envio = {
