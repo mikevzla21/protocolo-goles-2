@@ -144,14 +144,15 @@ def enviar_pronostico_telegram(partido, stats_calculadas):
 
         # 3. Envío a Telegram
         try:
-            # Usamos CHAT_ID que es la que tienes definida en tus otras capturas
-            bot_telegram.send_message(CHAT_ID, mensaje, parse_mode="Markdown")
+            # Usamos CHAT_ID_CANAL (que es tu dirección)
+            # Usamos mensaje (que es donde guardamos el texto del pronóstico líneas arriba)
+            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
             
             # 4. REGISTRO EN MEMORIA
             mem["enviados"].append(p_id)
             guardar_memoria_bot(mem)
             
-            # Mandamos al aprendizaje para el reporte de las 2 AM
+            # Registro para el reporte de goles
             registrar_aprendizaje("PENDIENTE", stats_calculadas)
             
         except Exception as e:
