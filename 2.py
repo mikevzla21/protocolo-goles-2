@@ -116,47 +116,47 @@ def obtener_stats_maestras(team_id, league_id):
 # --- LÓGICA DE ENVÍO AGRESIVA Y DETECCIÓN EN VIVO ---
 def enviar_pronostico_telegram(partido, stats_calculadas):
     mem = cargar_memoria_bot()
-    # Generamos un ID único para el partido (ID de API + Fecha)
-    p_id = f"{partido['fixture']['id']}_{partido['fixture']['date'][:10]}"
     
-    # FILTRO DE "YA ENVIADO": Solo pasa si no está en la lista de 'enviados'
+    # Ajuste de IDs: Usamos 'id' directo porque 'fixture' no existe en tu variable p
+    fecha_hoy = datetime.now().strftime('%Y-%m-%d')
+    p_id = f"{partido.get('id', 'sin_id')}_{fecha_hoy}"
+    
+    # FILTRO DE "YA ENVIADO"
     if p_id not in mem.get("enviados", []):
         
-        # Identificamos el estado del partido
-        estado_api = partido['fixture']['status']['short'] 
-        # Estados típicos de partido empezado: 1H (1er tiempo), HT (Descanso), 2H (2do tiempo)
-        es_en_vivo = estado_api in ['1H', 'HT', '2H', 'ET', 'P']
+        # Identificamos el estado (Usamos .get para que no de error si no hay estado)
+        estado_api = partido.get('status', 'TBD') 
+        es_en_vivo = estado_api in ['1H', 'HT', '2H', 'ET', 'P', 'LIVE']
         
-        # 1. Definimos el encabezado según el momento
+        # 1. Encabezado
         prefijo = "🔴 **PARTIDO EN VIVO**" if es_en_vivo else "⚽ **PRONÓSTICO**"
         
-        # 2. Construimos el mensaje (Usando SOLO tus filtros de value)
-        # Aquí asumo que tus variables de DAP o Corners ya están calculadas
+        # 2. Construcción del mensaje con TUS etiquetas reales (h, a, liga)
         mensaje = f"{prefijo}\n\n"
-        mensaje += f"🏆 **Liga:** {partido['league']['name']} ({partido['league']['country']})\n"
-        mensaje += f"⚔️ **Encuentro:** {partido['teams']['home']['name']} vs {partido['teams']['away']['name']}\n"
-        
-        # Aquí el bot escribe el pronóstico basado en TUS reglas de value
-        mensaje += f"🎯 **Predicción:** {stats_calculadas['pronostico_final']}\n" 
+        mensaje += f"🏆 **Liga:** {partido.get('liga', 'Desconocida')}\n"
+        mensaje += f"⚔️ **Encuentro:** {partido.get('h', 'N/A')} vs {partido.get('a', 'N/A')}\n"
+        mensaje += f"🎯 **Predicción:** {stats_calculadas['pronostico_final']}\n"
         
         if es_en_vivo:
-            mensaje += f"⏱️ **Minuto aprox:** {partido['fixture']['status']['elapsed']}'\n"
+            # Usamos 'tiempo' o 'm' según lo que use tu API, .get evita el crash
+            minuto = partido.get('tiempo', '??')
+            mensaje += f"⏱️ **Minuto aprox:** {minuto}'\n"
 
         # 3. Envío a Telegram
         try:
-            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+            # Usamos CHAT_ID que es la que tienes definida en tus otras capturas
+            bot_telegram.send_message(CHAT_ID, mensaje, parse_mode="Markdown")
             
-            # 4. REGISTRO EN MEMORIA: Lo marcamos como enviado y sumamos al contador
+            # 4. REGISTRO EN MEMORIA
             mem["enviados"].append(p_id)
-            mem["ultimo_lote"] += 1
             guardar_memoria_bot(mem)
             
-            # También lo mandamos al aprendizaje
+            # Mandamos al aprendizaje para el reporte de las 2 AM
             registrar_aprendizaje("PENDIENTE", stats_calculadas)
             
         except Exception as e:
             print(f"Error enviando a Telegram: {e}")
-
+        
 # CSS Original (INTACTO)
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.markdown("""
