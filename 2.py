@@ -22,21 +22,32 @@ bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.set_page_config(page_title="Analizador Miguel", layout="wide", page_icon="⚽")
 
-# --- BLOQUE DE MEMORIA ROBUSTO ---
+# --- BLOQUE DE MEMORIA EVOLUTIVO (CON APRENDIZAJE) ---
 def cargar_memoria_bot():
     mem_base = {
         "ultimo_lote": 0, 
-        "fecha_actual": "", 
+        "fecha_actual": datetime.now().strftime("%Y-%m-%d"), 
         "enviados": [], 
         "acertados": 0, 
         "fallados": 0,
-        "patrones_fallidos": {},
+        "patrones_aprendizaje": {
+            "inercia_baja_falla": 0,
+            "saturacion_techo_exito": 0,
+            "equilibrio_bunker_verde": 0,
+            "ligas_negras": []
+        },
+        "reporte_enviado": False,
         "memoria_ligas": {} 
     }
     if os.path.exists("memoria_bot.json"):
         try:
             with open("memoria_bot.json", "r") as f:
                 data = json.load(f)
+                fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+                if data.get("fecha_actual") != fecha_hoy:
+                    data["fecha_actual"] = fecha_hoy
+                    data["reporte_enviado"] = False
+                # Sincronización con Streamlit para la calculadora manual
                 if not os.getenv("GITHUB_ACTIONS") == "true":
                     if 'memoria_ligas' not in st.session_state:
                         st.session_state.memoria_ligas = data.get("memoria_ligas", {})
@@ -53,8 +64,43 @@ def guardar_memoria_bot(datos):
     with open("memoria_bot.json", "w") as f:
         json.dump(datos, f)
 
+def registrar_aprendizaje(resultado, datos_partido):
+    mem = cargar_memoria_bot()
+    if resultado == "❌":
+        if datos_partido.get('inercia') == "Baja":
+            mem["patrones_aprendizaje"]["inercia_baja_falla"] += 1
+    elif resultado == "✅":
+        if datos_partido.get('lambda', 0) > 3.5:
+            mem["patrones_aprendizaje"]["saturacion_techo_exito"] += 1
+        if datos_partido.get('tipo') == "Equilibrio":
+            mem["patrones_aprendizaje"]["equilibrio_bunker_verde"] += 1
+    guardar_memoria_bot(mem)
+
 memoria_temp = cargar_memoria_bot()
 
+def enviar_reporte_diario_patrones():
+    mem = cargar_memoria_bot()
+    ahora = datetime.now()
+    
+    # Solo se envía una vez al día, después de las 10 PM (hora Venezuela)
+    if ahora.hour >= 6 and not mem.get("reporte_enviado", False):
+        msg = "🧠 **REPORTE DIARIO DE APRENDIZAJE**\n\n"
+        msg += f"✅ Acertados: {mem['acertados']} | ❌ Fallados: {mem['fallados']}\n\n"
+        msg += "📈 **Patrones Detectados:**\n"
+        
+        if mem["patrones_aprendizaje"]["inercia_baja_falla"] > 2:
+            msg += "⚠️ *Alerta:* La 'Inercia Baja' está causando fallos. Recomiendo asegurar con Búnker.\n"
+        
+        if mem["patrones_aprendizaje"]["saturacion_techo_exito"] > 0:
+            msg += f"🔥 *Saturación:* El λ alto se ha cumplido {mem['patrones_aprendizaje']['saturacion_techo_exito']} veces hoy.\n"
+            
+        bot_telegram.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
+        
+        # Resetear reporte para mañana pero mantener aprendizaje
+        mem["reporte_enviado"] = True
+        guardar_memoria_bot(mem)
+
+# --- BUSCADOR DE DATOS REALES (API) ---
 def obtener_stats_maestras(team_id, league_id):
     url = "https://v3.football.api-sports.io/teams/statistics"
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
@@ -64,7 +110,8 @@ def obtener_stats_maestras(team_id, league_id):
         f = r['response']['goals']['for']['average']['total']
         a = r['response']['goals']['against']['average']['total']
         return float(f), float(a)
-    except: return 1.5, 1.0
+    except: 
+        return 1.5, 1.0
 
 # CSS Original (INTACTO)
 if not os.getenv("GITHUB_ACTIONS") == "true":
@@ -91,7 +138,7 @@ def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     equipos_full = (equipo_h + " " + equipo_a).lower()
     KEYWORDS_FEM = ["women", "femenino", "femenil", "nwsl", "wsl", "liga f", "première ligue", "shebelieves", "gold cup", "w champions cup"]
     if any(x in nombre_full or x in equipos_full for x in KEYWORDS_FEM + ["u17", "u19", "u20", "u21", "u22", "u23", "amateur", "reserve", "youth", "ncaa"]): return "⚪"
-    elite_keywords = ["premier league", "bundesliga", "serie a", "laliga", "la liga", "ligue 1", "super lig", "trendyol süper lig", "eredivisie", "futve", "liga mx", "dimayor", "primera a", "liga profesional", "brasileiro serie a", "carioca", "paulista", "liga 1", "liga pro", "liga portugal", "betclic", "saudi pro league", "pro league", "jupiler", "ekstraklasa", "parva liga", "superliga româniei", "liga i"]
+    elite_keywords = ["premier league", "bundesliga", "serie a", "laliga", "a-league", "ligue 1", "super lig", "trendyol süper lig", "eredivisie", "liga futve", "liga mx", "dimayor", "primera a", "liga profesional", "brasileiro serie a", "liga 1", "liga pro", "liga portugal", "betclic", "saudi pro league", "pro league", "jupiler", "ekstraklasa", "parva liga", "superliga româniei", "liga i"]
     if any(x in nombre_full for x in elite_keywords) and not any(y in nombre_full for y in ["second", "2. division", "segunda", "division b"]): return "🟢"
     ascenso_keywords = ["championship", "2. bundesliga", "serie b", "laliga 2", "la liga 2", "hypermotion", "league one", "segunda"]
     if any(x in nombre_full for x in ascenso_keywords): return "🟡"
@@ -122,7 +169,7 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
     url = "https://v3.football.api-sports.io/fixtures"
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
     params = {"date": f_str}
-    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey"]
+    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey", "Australia"]
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200:
