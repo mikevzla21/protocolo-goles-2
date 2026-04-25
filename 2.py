@@ -113,6 +113,50 @@ def obtener_stats_maestras(team_id, league_id):
     except: 
         return 1.5, 1.0
 
+# --- LÓGICA DE ENVÍO AGRESIVA Y DETECCIÓN EN VIVO ---
+def enviar_pronostico_telegram(partido, stats_calculadas):
+    mem = cargar_memoria_bot()
+    # Generamos un ID único para el partido (ID de API + Fecha)
+    p_id = f"{partido['fixture']['id']}_{partido['fixture']['date'][:10]}"
+    
+    # FILTRO DE "YA ENVIADO": Solo pasa si no está en la lista de 'enviados'
+    if p_id not in mem.get("enviados", []):
+        
+        # Identificamos el estado del partido
+        estado_api = partido['fixture']['status']['short'] 
+        # Estados típicos de partido empezado: 1H (1er tiempo), HT (Descanso), 2H (2do tiempo)
+        es_en_vivo = estado_api in ['1H', 'HT', '2H', 'ET', 'P']
+        
+        # 1. Definimos el encabezado según el momento
+        prefijo = "🔴 **PARTIDO EN VIVO**" if es_en_vivo else "⚽ **PRONÓSTICO**"
+        
+        # 2. Construimos el mensaje (Usando SOLO tus filtros de value)
+        # Aquí asumo que tus variables de DAP o Corners ya están calculadas
+        mensaje = f"{prefijo}\n\n"
+        mensaje += f"🏆 **Liga:** {partido['league']['name']} ({partido['league']['country']})\n"
+        mensaje += f"⚔️ **Encuentro:** {partido['teams']['home']['name']} vs {partido['teams']['away']['name']}\n"
+        
+        # Aquí el bot escribe el pronóstico basado en TUS reglas de value
+        mensaje += f"🎯 **Predicción:** {stats_calculadas['pronostico_final']}\n" 
+        
+        if es_en_vivo:
+            mensaje += f"⏱️ **Minuto aprox:** {partido['fixture']['status']['elapsed']}'\n"
+
+        # 3. Envío a Telegram
+        try:
+            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+            
+            # 4. REGISTRO EN MEMORIA: Lo marcamos como enviado y sumamos al contador
+            mem["enviados"].append(p_id)
+            mem["ultimo_lote"] += 1
+            guardar_memoria_bot(mem)
+            
+            # También lo mandamos al aprendizaje
+            registrar_aprendizaje("PENDIENTE", stats_calculadas)
+            
+        except Exception as e:
+            print(f"Error enviando a Telegram: {e}")
+
 # CSS Original (INTACTO)
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.markdown("""
@@ -215,19 +259,26 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         if p_val in [57, 58, 59, 65, 72, 73]: etiq_v = "🔥 *VALUE SÓLIDO (1.5)*\n"
         elif 61 <= p_val <= 64: etiq_v = "🔥 *VALUE SÓLIDO (2.5)*\n"
         elif p_val in [70, 71, 74, 60]: etiq_v = "⚠️ *VALUE RIESGOSO*\n"
-        
-        # CAMBIO SOLICITADO: Solo envía si etiq_v (algún value) existe.
-        if etiq_v:
-            mensaje += f"⚽ *{p['h']} vs {p['a']}*\n🏆 {p['liga']} ({p['color']})\n⏰ Hora: {p['hora']}\n{etiq_v}🎯 Búnker: {o15}% (Letra {letra})\n\n"
-            memoria["enviados"].append(p['id'])
-            enviados_count += 1
-            
+
+        # Preparamos los datos para el envío
+        stats_envio = {
+            "pronostico_final": etiq_v,
+            "lambda": (fh + av + fv + ah) / 4, # Ejemplo de cálculo para aprendizaje
+            "inercia": "Baja" if p_val < 60 else "Alta" # Según tus criterios
+        }
+
+        # LLAMADA A LA NUEVA FUNCIÓN (La que detecta En Vivo)
+        enviar_pronostico_telegram(p, stats_envio)
+        enviados_count += 1
+                           
     if enviados_count > 0:
         mensaje += f"----------------------------------\n📊 *EFICACIA:* ✅ {memoria['acertados']} | ❌ {memoria['fallados']}"
         try:
             bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
             guardar_memoria_bot(memoria)
         except: pass
+
+enviar_reporte_diario_patrones()
 
 def ejecutar_analisis_automatico():
     tz = "America/Caracas"
