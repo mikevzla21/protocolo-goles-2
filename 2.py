@@ -262,17 +262,15 @@ def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     if any(x in nombre_full for x in ["cup", "trophy", "copa", "fa cup", "pokal", "libertadores", "sudamericana", "champions league", "playoffs"]): return "🔵"
     return "🟠"
 
-def motor_logico_maestro(l_total, p_val):
-    # Aseguramos que p_val sea entero para que coincida con los filtros
+def motor_logico_maestro(l_loc, l_vis, l_total):
+    # 1. Definimos las variables para que el código no se pierda
+    p_val = l_total 
     p_val_int = int(round(p_val))
-    
-    # 1. Identificar el patrón más cercano
+   # 2. Identificamos el patrón más cercano
     ref = min(PATRONES_MAESTROS.keys(), key=lambda x: abs(x - l_total))
     o15_f, o25_f, letra = PATRONES_MAESTROS[ref]
     
-    # 2. Aplicar tus filtros estrictos de etiquetas
-    # Sólido: 57-59, 61-65, 72, 73
-    # Riesgoso: 60, 70, 71, 74
+    # 3. Aplicar tus filtros estrictos de etiquetas
     if p_val_int in [57, 58, 59, 61, 62, 63, 64, 65, 72, 73]:
         etiq = f"🔥 *VALUE SÓLIDO ({letra})*"
         es_value = True
@@ -283,8 +281,6 @@ def motor_logico_maestro(l_total, p_val):
         etiq = "⚪ *SIN PATRÓN CLARO*"
         es_value = False
 
-    # RETURN FINAL: Mantenemos el l_total y las probabilidades que esperas, 
-    # pero sumamos la etiqueta y el validador.
     return etiq, es_value, letra, max(1, o15_f), max(1, o25_f), l_total
 
 def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
