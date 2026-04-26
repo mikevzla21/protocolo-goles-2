@@ -263,23 +263,22 @@ def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     return "🟠"
 
 def motor_logico_maestro(l_loc, l_vis, l_total):
-    # 1. Buscamos SIEMPRE la letra primero según el lambda total
+    # 1. Buscamos la letra
     ref = min(PATRONES_MAESTROS.keys(), key=lambda x: abs(x - l_total))
     o15_f, o25_f, letra = PATRONES_MAESTROS[ref]
     
-    # 2. Identificamos el número entero para el filtro de etiquetas
     p_val_int = int(round(l_total))
     
-    # 3. Aplicamos TUS filtros exactos
+    # 2. Definimos la etiqueta con el % de probabilidad visible
     if p_val_int in [57, 58, 59, 61, 62, 63, 64, 65, 72, 73]:
-        etiq = f"🔥 *VALUE SÓLIDO ({letra})*"
+        etiq = f"🔥 *VALUE SÓLIDO* ({p_val_int}%) - Letra: {letra}"
         es_value = True
     elif p_val_int in [60, 70, 71, 74]:
-        etiq = f"⚠️ *VALUE RIESGOSO ({letra})*"
+        etiq = f"⚠️ *VALUE RIESGOSO* ({p_val_int}%) - Letra: {letra}"
         es_value = True
     else:
-        # CUALQUIER otro número (54, 55, 66, etc.) es Sin Patrón
-        etiq = f"⚪ *SIN PATRÓN CLARO ({letra})*"
+        # CUALQUIER otro número muestra su % y su letra
+        etiq = f"⚪ *SIN PATRÓN CLARO* ({p_val_int}%) - Letra: {letra}"
         es_value = False
 
     return etiq, es_value, letra, max(1, o15_f), max(1, o25_f), l_total
@@ -351,34 +350,34 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     if not partidos_para_enviar: return
 
     lista_para_reporte = [] 
-    enviados_count = 0
 
     for p in partidos_para_enviar:
-        if enviados_count >= 12: break
-        
-        # Stats y Lambdas de 3 puntos
+        # 1. Cálculos de Lambdas
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
         l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
         l_total = l_loc + l_vis
         
-        # Llamamos al motor (que ahora siempre da letra)
+        # 2. Obtener datos del motor (Etiq, Letra, Probabilidad)
         etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
         
-        # Inyectamos datos para el reporte de las 5 divisiones
+        # 3. Guardamos los datos en el partido para el desplegable
         p['letra'] = letra
         p['p_val'] = round(o25)
+        p['etiq_reporte'] = etiq 
+        
         lista_para_reporte.append(p)
 
-        # Registro ADN y aviso individual
+        # Registro ADN (Importante para el lunes)
         registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt, l_loc, l_vis, round(o25))
-        enviar_pronostico_telegram(p, {"pronostico_final": etiq, "letra": letra, "lambda": lt})
+        
+        # --- HEMOS QUITADO EL ENVÍO INDIVIDUAL AQUÍ PARA EVITAR LOS 14 MENSAJES ---
         
         memoria["enviados"].append(p['id'])
-        enviados_count += 1
 
-    # --- AQUÍ SE DISPARA EL DESPLEGABLE DE LAS 5 LIGAS ---
+    # --- 4. ENVÍO DEL DESPLEGABLE ÚNICO (LAS 5 DIVISIONES) ---
     if lista_para_reporte:
+        # Esto manda UN SOLO MENSAJE con todos los partidos organizados
         enviar_reporte_maestro_organizado(lista_para_reporte)
         guardar_memoria_bot(memoria)
 
