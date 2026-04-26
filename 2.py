@@ -341,33 +341,36 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
 def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
     ahora = datetime.now(pytz.timezone(tz_ref))
+    
     if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
+    
     memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
     if not partidos_para_enviar: return
+
     lista_para_reporte = [] 
     enviados_count = 0
 
     for p in partidos_para_enviar:
-        if enviados_count >= 12: 
-            break
-        # 1. Obtener estadísticas y calcular Lambdas de 3 puntos
+        if enviados_count >= 12: break
+        
+        # 1. Stats y Lambdas
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        # Así debe quedar (BIEN)
         l_loc = (fh + av) / 2
         l_vis = (fv + ah) / 2
         l_total = l_loc + l_vis
-        # 2. Ejecutar Motor (Decide si es Sólido, Riesgoso o Neutral)
+        
+        # 2. Motor Maestro (Aquí se decide el patrón)
         etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
         
-        # 3. Preparar datos para el Reporte de 5 Divisiones (Colores)
+        # 3. Inyectar datos para el Reporte de 5 Divisiones
         p['letra'] = letra
         p['p_val'] = round(o25)
         lista_para_reporte.append(p)
 
-        # 4. Alerta individual y Registro ADN para el lunes
+        # 4. Envío individual y ADN
         stats_envio = {"pronostico_final": etiq, "letra": letra, "lambda": lt}
         enviar_pronostico_telegram(p, stats_envio)
         
@@ -379,6 +382,11 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         
         memoria["enviados"].append(p['id'])
         enviados_count += 1
+
+    # --- EL FINAL QUE DISPARA EL DESPLEGABLE DE 5 NIVELES ---
+    if lista_para_reporte:
+        enviar_reporte_maestro_organizado(lista_para_reporte)
+        guardar_memoria_bot(memoria)
 
     # --- ESTE ES EL FINAL DE LA FUNCIÓN ---
     if lista_para_reporte:
