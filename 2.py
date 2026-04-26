@@ -8,7 +8,6 @@ import telebot
 
 if 'partidos_del_dia' not in st.session_state:
     st.session_state.partidos_del_dia = []
-    
 if 'lista_partidos' not in st.session_state:
     st.session_state.lista_partidos = []
 
@@ -578,7 +577,6 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
 
             # --- VALIDACIÓN DE SEGURIDAD ---
             if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-                st.session_state.lista_partidos = []
                 if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
                     enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
             
@@ -626,3 +624,5 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
 if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
+
+
