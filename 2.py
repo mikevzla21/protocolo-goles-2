@@ -8,6 +8,12 @@ import telebot
 
 if 'partidos_del_dia' not in st.session_state:
     st.session_state.partidos_del_dia = []
+    
+if 'lista_partidos' not in st.session_state:
+    st.session_state.lista_partidos = []
+
+if 'analisis_realizado' not in st.session_state:
+    st.session_state.analisis_realizado = False
 
 # =====================================================
 # BLOQUE 1: DICCIONARIO DE PATRONES MAESTROS
@@ -351,7 +357,12 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         if enviados_count >= 12: break
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        o15, o25, lt, letra = motor_logico_maestro(((fh + av)/2) + ((fv + ah)/2))
+        # Así debe quedar (BIEN)
+        l_loc = (fh + av) / 2
+        l_vis = (fv + ah) / 2
+        l_total = l_loc + l_vis
+        # Asegúrate de poner todas estas variables para que coincidan con el return de tu motor
+        etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
         p_val = round(o25)
         etiq_v = ""
         # Lógica de etiquetas de Value (CORREGIDA)
@@ -567,7 +578,7 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
 
             # --- VALIDACIÓN DE SEGURIDAD ---
             if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-            
+                st.session_state.lista_partidos = []
                 if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
                     enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
             
