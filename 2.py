@@ -355,25 +355,30 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     for p in partidos_para_enviar:
         if enviados_count >= 12: break
         
-        # 1. Stats y Lambdas
+        # Obtener estadísticas reales
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+        
         l_loc = (fh + av) / 2
         l_vis = (fv + ah) / 2
         l_total = l_loc + l_vis
         
-        # 2. Motor Maestro (Aquí se decide el patrón)
+        # --- AQUÍ ESTÁ LA CLAVE: EL MOTOR DECIDE TODO ---
+        # El motor devuelve: etiq, es_val, letra, o15, o25, lt
         etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
         
-        # 3. Inyectar datos para el Reporte de 5 Divisiones
+        # Inyectamos los datos para el reporte de las 5 divisiones
         p['letra'] = letra
         p['p_val'] = round(o25)
+        p['etiq_final'] = etiq # Forzamos que use la etiqueta del motor
+        
         lista_para_reporte.append(p)
 
-        # 4. Envío individual y ADN
+        # Enviamos el aviso individual usando la etiqueta del motor
         stats_envio = {"pronostico_final": etiq, "letra": letra, "lambda": lt}
         enviar_pronostico_telegram(p, stats_envio)
         
+        # Registro ADN para el lunes
         registrar_adn_partido(
             h=p.get('h', 'N/A'), a=p.get('a', 'N/A'),
             liga=p.get('liga', 'N/A'), letra=letra,
@@ -383,8 +388,9 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         memoria["enviados"].append(p['id'])
         enviados_count += 1
 
-    # --- EL FINAL QUE DISPARA EL DESPLEGABLE DE 5 NIVELES ---
+    # --- DISPARO DEL DESPLEGABLE (LAS 5 DIVISIONES) ---
     if lista_para_reporte:
+        # Esta función debe estar definida en tu código para agrupar por colores
         enviar_reporte_maestro_organizado(lista_para_reporte)
         guardar_memoria_bot(memoria)
 
