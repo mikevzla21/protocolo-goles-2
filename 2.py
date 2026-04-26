@@ -342,44 +342,68 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
     ahora = datetime.now(pytz.timezone(tz_ref))
     
+    # 1. RESET AUTOMÁTICO DE ENVIADOS (Para que procese los de hoy de nuevo)
     if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
     
+    # Línea de emergencia: Forzamos limpieza para que aparezcan en el desplegable ahora mismo
+    memoria["enviados"] = [] 
+
     memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    if not partidos_para_enviar: return
+    
+    if not partidos_para_enviar:
+        return
 
     lista_para_reporte = [] 
+    enviados_count = 0
 
     for p in partidos_para_enviar:
-        # 1. Cálculos de Lambdas
+        if enviados_count >= 15: # Límite de partidos por lote
+            break
+        
+        # Obtención de estadísticas y cálculo de Lambdas
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
+        
+        l_loc = (fh + av) / 2
+        l_vis = (fv + ah) / 2
         l_total = l_loc + l_vis
         
-        # 2. Obtener datos del motor (Etiq, Letra, Probabilidad)
+        # MOTOR LÓGICO: Obtiene Etiqueta, Letra y Probabilidad
+        # Nota: Asegúrate de que tu función motor_logico_maestro devuelva estos 6 valores
         etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
-        
-        # 3. Guardamos los datos en el partido para el desplegable
+        prob_final = round(o25)
+
+        # INYECCIÓN DE DATOS PARA EL REPORTE DE 5 NIVELES
         p['letra'] = letra
-        p['p_val'] = round(o25)
-        p['etiq_reporte'] = etiq 
+        p['p_val'] = prob_final
+        p['etiq_final'] = etiq 
         
         lista_para_reporte.append(p)
 
-        # Registro ADN (Importante para el lunes)
-        registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt, l_loc, l_vis, round(o25))
+        # REGISTRO ADN (Para el análisis del lunes)
+        registrar_adn_partido(
+            h=p.get('h', 'N/A'), 
+            a=p.get('a', 'N/A'),
+            liga=p.get('liga', 'N/A'), 
+            letra=letra,
+            l_total=lt, 
+            l_h=l_loc, 
+            l_a=l_vis, 
+            p_val=prob_final
+        )
         
-        # --- HEMOS QUITADO EL ENVÍO INDIVIDUAL AQUÍ PARA EVITAR LOS 14 MENSAJES ---
-        
+        # Marcamos como enviado en la memoria local
         memoria["enviados"].append(p['id'])
+        enviados_count += 1
 
-    # --- 4. ENVÍO DEL DESPLEGABLE ÚNICO (LAS 5 DIVISIONES) ---
+    # --- ENVÍO DEL DESPLEGABLE ÚNICO (LAS 5 DIVISIONES) ---
     if lista_para_reporte:
-        # Esto manda UN SOLO MENSAJE con todos los partidos organizados
+        # Esta función genera el mensaje con círculos 🟢🟡🟠🔵⚪
         enviar_reporte_maestro_organizado(lista_para_reporte)
         guardar_memoria_bot(memoria)
+        print(f"✅ Reporte Maestro enviado con {len(lista_para_reporte)} partidos.")
 
 def generar_reporte_discrepancias():
     import os, json
