@@ -6,6 +6,33 @@ import json
 import os
 import telebot
 
+if 'partidos_del_dia' not in st.session_state:
+    st.session_state.partidos_del_dia = []
+
+# =====================================================
+# BLOQUE 1: DICCIONARIO DE PATRONES MAESTROS
+# Mapeo: lambda_total -> (Over 1.5, Over 2.5, Letra)
+# =====================================================
+PATRONES_MAESTROS = {
+    2.61: (84.0, 57.0, "A"), 2.71: (86.0, 59.0, "B"), 3.54: (93.0, 71.0, "C/K"), 
+    2.72: (85.0, 61.0, "D"), 2.81: (87.0, 63.0, "E"), 2.14: (77.0, 50.0, "F"), 
+    2.57: (83.0, 56.0, "G"), 3.46: (93.0, 70.0, "H"), 3.70: (94.0, 74.0, "I"), 
+    2.15: (71.0, 43.0, "J"), 2.64: (84.0, 59.0, "L"), 1.81: (65.0, 30.0, "M"), 
+    3.69: (92.0, 71.0, "N"), 2.78: (77.0, 52.0, "Ñ"), 2.33: (72.0, 41.0, "O"), 
+    3.40: (89.0, 65.0, "P"), 3.96: (94.0, 76.0, "Q"), 3.48: (91.0, 68.0, "R"), 
+    3.29: (87.0, 62.0, "S"), 3.81: (93.0, 74.0, "T"), 2.40: (72.0, 46.0, "U"), 
+    3.75: (89.0, 72.0, "V"), 3.71: (94.0, 74.0, "W"), 1.45: (52.0, 17.0, "X"), 
+    2.89: (88.0, 62.0, "Y"), 3.11: (89.0, 64.0, "Z"), 3.30: (91.0, 66.0, "A2"), 
+    2.68: (85.0, 58.0, "B2"), 3.90: (95.0, 77.0, "D2"), 3.32: (91.0, 66.0, "E2"), 
+    3.74: (94.0, 74.0, "F2"), 2.13: (76.0, 26.0, "G2"), 4.08: (96.0, 80.0, "H2"), 
+    4.00: (95.0, 78.0, "I2"), 2.37: (81.0, 54.0, "L2"), 2.47: (82.0, 54.0, "M2"), 
+    2.70: (85.0, 60.0, "N2"), 2.36: (80.0, 53.0, "Ñ2"), 1.19: (50.0, 19.0, "O2"), 
+    2.04: (67.0, 38.0, "P2"), 1.55: (59.0, 32.0, "Q2"), 2.78: (86.0, 62.0, "R2"), 
+    2.02: (66.0, 37.0, "S2"), 2.31: (78.0, 51.0, "T2"), 2.09: (69.0, 40.0, "U2"), 
+    2.15: (71.0, 43.0, "V2"), 2.61: (84.0, 58.0, "W2"), 2.27: (76.0, 49.0, "X2"), 
+    1.81: (65.0, 30.0, "Y2")
+}
+
 # --- CONFIGURACIÓN DE SEGURIDAD Y TELEGRAM ---
 try:
     MI_KEY_PRIVADA = st.secrets["MI_KEY_PRIVADA"]
@@ -100,6 +127,46 @@ def enviar_reporte_diario_patrones():
         mem["reporte_enviado"] = True
         guardar_memoria_bot(mem)
 
+def enviar_reporte_maestro_organizado(lista_partidos):
+    # El ":" de arriba es lo que le faltaba a tu código para que el IF no diera error
+    if not lista_partidos:
+        print(f"[{datetime.now().strftime('%H:%M')}] Escaneo finalizado: Sin oportunidades.")
+        return 
+
+    hora_actual = datetime.now().strftime("%H:%M")
+    
+    # Encabezado con la hora exacta
+    mensaje = f"🔍 **Escaneo de partidos**\n🕒 **Hora:** {hora_actual}\n"
+    mensaje += "—" * 20 + "\n\n"
+
+    # Secciones por colores
+    secciones = {
+        "VERDE": {"emoji": "🟢", "partidos": []},
+        "AMARILLO": {"emoji": "🟡", "partidos": []},
+        "NARANJA": {"emoji": "🟠", "partidos": []},
+        "AZUL": {"emoji": "🔵", "partidos": []},
+        "BLANCO": {"emoji": "⚪", "partidos": []}
+    }
+
+    # Clasificación
+    for p in lista_partidos:
+        color_asignado = p.get('color', 'BLANCO').upper()
+        if color_asignado in secciones:
+            secciones[color_asignado]["partidos"].append(p)
+
+    # Construcción visual
+    for nombre, data in secciones.items():
+        if data["partidos"]:
+            mensaje += f"{data['emoji']} **DIVISIÓN {nombre}** {data['emoji']}\n"
+            for p in data["partidos"]:
+                mensaje += f"📍 `{p.get('h')} vs {p.get('a')}`\n"
+                mensaje += f"📊 Letra: {p.get('letra', '?')} | Val: {p.get('p_val', 0)}%\n"
+                mensaje += "—" * 12 + "\n"
+            mensaje += "\n"
+
+    # Envío a Telegram
+    bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+
 # --- BUSCADOR DE DATOS REALES (API) ---
 def obtener_stats_maestras(team_id, league_id):
     url = "https://v3.football.api-sports.io/teams/statistics"
@@ -157,7 +224,7 @@ def enviar_pronostico_telegram(partido, stats_calculadas):
             
         except Exception as e:
             print(f"Error enviando a Telegram: {e}")
-        
+
 # CSS Original (INTACTO)
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.markdown("""
@@ -190,24 +257,55 @@ def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     if any(x in nombre_full for x in ["cup", "trophy", "copa", "fa cup", "pokal", "libertadores", "sudamericana", "champions league", "playoffs"]): return "🔵"
     return "🟠"
 
-def motor_logico_maestro(l_total):
-    matriz = {
-        2.61: (84.0, 57.0, "A"), 2.71: (86.0, 59.0, "B"), 3.54: (93.0, 71.0, "C/K"), 2.72: (85.0, 61.0, "D"), 
-        2.81: (87.0, 63.0, "E"), 2.14: (77.0, 50.0, "F"), 2.57: (83.0, 56.0, "G"), 3.46: (93.0, 70.0, "H"), 
-        3.70: (94.0, 74.0, "I"), 2.15: (71.0, 43.0, "J"), 2.64: (84.0, 59.0, "L"), 1.81: (65.0, 30.0, "M"), 
-        3.69: (92.0, 71.0, "N"), 2.78: (77.0, 52.0, "Ñ"), 2.33: (72.0, 41.0, "O"), 3.40: (89.0, 65.0, "P"), 
-        3.96: (94.0, 76.0, "Q"), 3.48: (91.0, 68.0, "R"), 3.29: (87.0, 62.0, "S"), 3.81: (93.0, 74.0, "T"), 
-        2.40: (72.0, 46.0, "U"), 3.75: (89.0, 72.0, "V"), 3.71: (94.0, 74.0, "W"), 1.45: (52.0, 17.0, "X"), 
-        2.89: (88.0, 62.0, "Y"), 3.11: (89.0, 64.0, "Z"), 3.30: (91.0, 66.0, "A2"), 2.68: (85.0, 58.0, "B2"), 
-        3.90: (95.0, 77.0, "D2"), 3.32: (91.0, 66.0, "E2"), 3.74: (94.0, 74.0, "F2"), 2.13: (76.0, 26.0, "G2"), 
-        4.08: (96.0, 80.0, "H2"), 4.00: (95.0, 78.0, "I2"), 2.37: (81.0, 54.0, "L2"), 2.47: (82.0, 54.0, "M2"), 
-        2.70: (85.0, 60.0, "N2"), 2.36: (80.0, 53.0, "Ñ2"), 1.19: (50.0, 19.0, "O2"), 2.04: (67.0, 38.0, "P2"), 
-        1.55: (59.0, 32.0, "Q2"), 2.78: (86.0, 62.0, "R2"), 2.02: (66.0, 37.0, "S2"), 2.31: (78.0, 51.0, "T2"), 
-        2.09: (69.0, 40.0, "U2"), 2.15: (71.0, 43.0, "V2"), 2.61: (84.0, 58.0, "W2"), 2.27: (76.0, 49.0, "X2"), 1.81: (65.0, 30.0, "Y2")
-    }
-    ref = min(matriz.keys(), key=lambda x: abs(x - l_total))
-    o15_f, o25_f, letra = matriz[ref]
-    return max(1, o15_f), max(1, o25_f), l_total, letra
+def motor_logico_maestro(l_total, p_val):
+    # Aseguramos que p_val sea entero para que coincida con los filtros
+    p_val_int = int(round(p_val))
+    
+    # 1. Identificar el patrón más cercano
+    ref = min(PATRONES_MAESTROS.keys(), key=lambda x: abs(x - l_total))
+    o15_f, o25_f, letra = PATRONES_MAESTROS[ref]
+    
+    # 2. Aplicar tus filtros estrictos de etiquetas
+    # Sólido: 57-59, 61-65, 72, 73
+    # Riesgoso: 60, 70, 71, 74
+    if p_val_int in [57, 58, 59, 61, 62, 63, 64, 65, 72, 73]:
+        etiq = f"🔥 *VALUE SÓLIDO ({letra})*"
+        es_value = True
+    elif p_val_int in [60, 70, 71, 74]:
+        etiq = f"⚠️ *VALUE RIESGOSO ({letra})*"
+        es_value = True
+    else:
+        etiq = "⚪ *SIN PATRÓN CLARO*"
+        es_value = False
+
+    # RETURN FINAL: Mantenemos el l_total y las probabilidades que esperas, 
+    # pero sumamos la etiqueta y el validador.
+    return etiq, es_value, letra, max(1, o15_f), max(1, o25_f), l_total
+
+def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
+    """
+    Guarda los datos técnicos para el reporte de discrepancias.
+    """
+    import os, json # Aseguramos que estén disponibles
+    archivo = "registro_aprendizaje.json"
+    
+    if os.path.exists(archivo):
+        with open(archivo, 'r') as f: historial = json.load(f)
+    else: historial = []
+
+    historial.append({
+        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "partido": f"{h} vs {a}",
+        "liga": liga,
+        "letra": letra,
+        "l_total": l_total,
+        "f_h": round((l_h / l_total) * 100, 2) if l_total > 0 else 0,
+        "f_a": round((l_a / l_total) * 100, 2) if l_total > 0 else 0,
+        "p_val": p_val,
+        "estado": "PENDIENTE"
+    })
+    
+    with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
 
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
     f_str = fecha_obj.strftime("%Y-%m-%d")
@@ -281,11 +379,57 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     if enviados_count > 0:
         mensaje += f"----------------------------------\n📊 *EFICACIA:* ✅ {memoria['acertados']} | ❌ {memoria['fallados']}"
         try:
-            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
-            guardar_memoria_bot(memoria)
-        except: pass
+            # 1. Envío a Telegram (lo que ya tenías)
+            enviar_pronostico_telegram(p, stats_envio)
+            
+            # 2. Registro de memoria local (lo que ya tenías)
+            mem["enviados"].append(f"{p.get('h')}_{p.get('a')}")
+            guardar_memoria_bot(mem)
+            
+            # 3. CONEXIÓN DE APRENDIZAJE (El registro para el lunes)
+            # Usamos 'p' y 'stats_envio' que son las variables de tu bucle
+            registrar_adn_partido(
+                h=p.get('h', 'N/A'),
+                a=p.get('a', 'N/A'),
+                liga=p.get('liga', 'N/A'),
+                letra=stats_envio.get('letra', '?'),
+                l_total=stats_envio.get('lambda', 0),
+                l_h=p.get('l_h', 0), 
+                l_a=p.get('l_a', 0),
+                p_val=p.get('p_val', 0)
+            )
+            print(f"🧬 ADN guardado con éxito: {p.get('h')}")
 
-enviar_reporte_diario_patrones()
+        except Exception as e:
+            print(f"❌ Error en el proceso de envío/registro: {e}")
+
+def generar_reporte_discrepancias():
+    import os, json
+    archivo = "registro_aprendizaje.json"
+    if not os.path.exists(archivo): return "⚠️ No hay datos."
+    
+    try:
+        with open(archivo, 'r') as f: historial = json.load(f)
+        hallazgos = []
+        for p_reg in historial:
+            if p_reg.get("estado") == "PENDIENTE":
+                f_h = p_reg.get("f_h", 0)
+                if f_h > 80:
+                    hallazgos.append(f"🧐 {p_reg['partido']} ({p_reg['letra']}): Local dominante ({f_h}%).")
+                p_reg["estado"] = "ANALIZADO"
+        with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
+        return "\n".join(hallazgos) if hallazgos else "✅ Patrones analizados."
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+# --- ACTIVADOR LUNES 2 AM (PEGADO AL BORDE IZQUIERDO) ---
+ahora = datetime.now()
+if ahora.weekday() == 0 and ahora.hour == 2:
+    try:
+        rep = generar_reporte_discrepancias()
+        bot_telegram.send_message(CHAT_ID_CANAL, f"📊 **REPORTE**\n\n{rep}", parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error reporte: {e}")
 
 def ejecutar_analisis_automatico():
     tz = "America/Caracas"
@@ -336,21 +480,36 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
                 if abs(puesto_l - puesto_v) >= 10:
                     if puesto_l < puesto_v: l_loc_calc *= 1.05; l_vis_calc *= 0.85
                     else: l_loc_calc *= 0.85; l_vis_calc *= 1.10
-            o15, o25, lt, letra = motor_logico_maestro(l_loc_calc + l_vis_calc)
+            
+            # Calculamos el lambda total para la función
+            l_total_input = l_loc_calc + l_vis_calc
+            # Desempaquetado correcto según el return de tu función:
+            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_total_input, l_total_input)
+            
             st.session_state.analisis_realizado = True
-            st.session_state.resultados = {"o15": o15, "o25": o25, "lt": lt, "letra": letra, "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, "lc_l": l_c, "lc_v": v_c}
-
+            st.session_state.resultados = {
+                "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
+                "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
+                "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
+            }
+                              
+        # BLOQUE DE VISUALIZACIÓN (Alineado a la izquierda para ejecución inmediata)
         if st.session_state.analisis_realizado:
             res = st.session_state.resultados
-            p_val, pico = round(res["o25"]), round(res['lt'])
+            p_val = int(float(res.get("o25", 0)))
+            pico = float(res.get("lt", 0))
+
             f_msg, f_col, f_tipo, bloqueado = "SIN PATRÓN CLARO", "#4a4a4a", "VACIO", True
+            
             if p_val in [57, 58, 59, 65, 72, 73]: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 1.5 GOLES", "#00ff00", "1.5", False
             elif 61 <= p_val <= 64: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 2.5 GOLES", "#00ff00", "2.5", False
             elif p_val in [70, 71, 74]: f_msg, f_col, f_tipo, bloqueado = "VALUE 1.5 RIESGOSO", "#e74c3c", "RIESGO_15", False
             elif p_val == 60: f_msg, f_col, f_tipo, bloqueado = "VALUE 2.5 RIESGOSO", "#e74c3c", "RIESGO_25", False
             
-            if f_tipo in ["1.5", "2.5"]: st.markdown(f'<div class="alerta-cuota">⚠️ VALUE {f_tipo} DETECTADO: Comprobar cuotas Local/Visita y Over 1.5 PARA CORROBORAR SOLIDEZ DEL VEREDICTO</div>', unsafe_allow_html=True)
-            
+            # --- TODO ESTO SIGUE DENTRO DEL IF ---
+            if f_tipo in ["1.5", "2.5"]:
+                st.markdown(f'<div class="alerta-cuota">⚠️ VALUE {f_tipo}</div>', unsafe_allow_html=True)
+        
             c1, c2 = st.columns(2)
             with c1:
                 p_l, p_v = (res["ll"]/(res["lt"]+0.001))*100, (res["lv"]/(res["lt"]+0.001))*100
@@ -358,71 +517,101 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
                 st.markdown(f"| Mercado | Probabilidad |\n| :--- | :--- |\n| Over 1.5 | **{res['o15']:.1f}%** |\n| Over 2.5 | **{res['o25']:.1f}%** |\n| Victoria Local | {p_l:.1f}% |\n| Victoria Visitante | {p_v:.1f}% |")
                 est = f"Doble Oportunidad {fav}" + (" y Over 1.5" if "1.5" in f_tipo else " y Over 2.5" if "2.5" in f_tipo else "")
                 st.markdown(f"""<div style="background-color:#4a4a4a; padding:12px; border-radius:8px; color:white; text-align:center;"><span style="font-size:0.8em;">ESTRATEGIA SUGERIDA:</span><br><b>{est.upper()}</b></div>""", unsafe_allow_html=True)
+        
             with c2:
                 sum_a, sum_c = res['la'] + res['va'], res['lc_l'] + res['lc_v']
                 rel = sum_a / (sum_c if sum_c > 0 else 0.1)
+                # EL IF DE ABAJO AHORA SÍ ESTÁ DENTRO DE C2
                 if rel < 1.5: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Inercia baja)", "**Under 2.5/3.5 goles**", "INERCIA BAJA"
                 elif rel < 2.0: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Equilibrio)", "**Over 1.5 / Under 3.5 goles**", "EQUILIBRADO"
                 else: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Saturación)", "**Over 2.5 goles**", "OVER SÓLIDO"
+            
                 st.markdown("### 🎯 Patrón visual clave")
-                st.markdown(f"* Anotados combinados: **{sum_a:.1f}**\n* Concedidos combinados: **{sum_c:.1f}**\n* Relación A/C: {txt_ac}\n* Recomendación táctica: {rec_ac}\n* Ambas defensas permeables = **{defensas}**")
-                st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
-                st.write(f"**λ Total:** {res['lt']:.2f} | **Letra:** {res['letra']}")
+                st.markdown(f"* Anotados combinados: **{sum_a:.1f}**")
+                st.markdown(f"* Concedidos combinados: **{sum_c:.1f}**")
+                st.markdown(f"* Relación A/C: {txt_ac}")
+                st.markdown(f"* Recomendación táctica: {rec_ac}")
+                st.markdown(f"* Ambas defensas permeables = **{defensas}**")
 
+            # Final del reporte visual
+            st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
+            st.write(f"**λ Total:** {res['lt']:.2f} | **Letra:** {res['letra']}")
+
+            # El separador y los botones finales también DENTRO del IF principal
             st.markdown("---")
             with st.expander("📊 ANALIZADOR DE CUOTAS Y SINCRO", expanded=True):
-                if bloqueado and pico != 2: st.warning("🚫 Filtro sin patrón claro para análisis de cuotas.")
+                if bloqueado and pico != 2: 
+                    st.warning("🚫 Filtro sin patrón claro para análisis de cuotas.")
                 else:
                     cq1, cq2, cq3 = st.columns(3)
                     c_o15 = cq3.number_input("Cuota Over 1.5 Goles", 1.0, 5.0, 1.20, key="qc_o15")
                     if st.button("ANALIZAR SINCRO", key="btn_sinc"):
-                        if rel >= 2.0 and f_tipo == "2.5" and c_o15 <= 1.22: st.success("✅ SINCRO ÉXITO: Over 2.5 combinado con over de córners 'X-3'")
-                        else: st.info("Evaluar mercado manual.")
+                        if rel >= 2.0 and f_tipo == "2.5" and c_o15 <= 1.22: 
+                            st.success("✅ SINCRO ÉXITO: Over 2.5 combinado con over de córners 'X-3'")
+                        else: 
+                            st.info("Evaluar mercado manual.")
+        
             st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_clr")
+        with tab_api:
+            c_api1, c_api2 = st.columns(2)
+            with c_api1: 
+                f_input = st.date_input("Selecciona fecha", datetime.now(), key="f_input")
+            with c_api2: 
+                lista_tz = pytz.all_timezones
+                tz_idx = lista_tz.index("America/Caracas") if "America/Caracas" in lista_tz else 0
+                tz_input = st.selectbox("🕒 País Referencia (Hora)", lista_tz, index=tz_idx)
+        
+            if st.button("🚀 INICIAR ESCANEO DE JORNADA", key="btn_scan"):
+                with st.spinner("Escaneando..."): 
+                    st.session_state.lista_partidos = buscar_partidos_fecha(f_input, tz_input)
 
-    with tab_api:
-        c_api1, c_api2 = st.columns(2)
-        with c_api1: f_input = st.date_input("Selecciona fecha", datetime.now(), key="f_input")
-        with c_api2: 
-            lista_tz = pytz.all_timezones
-            tz_input = st.selectbox("🕒 País Referencia (Hora)", lista_tz, index=lista_tz.index("America/Caracas") if "America/Caracas" in lista_tz else 0)
-        if st.button("🚀 INICIAR ESCANEO DE JORNADA", key="btn_scan"):
-            with st.spinner("Escaneando..."): st.session_state.lista_partidos = buscar_partidos_fecha(f_input, tz_input)
-        if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-            if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
+            # --- VALIDACIÓN DE SEGURIDAD ---
+            if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
             
-            with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
-                ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
-                ca1, ca2, ca3 = st.columns([2,1,1])
-                l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
-                n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
-                if ca3.button("GUARDAR CAMBIO"):
-                    st.session_state.memoria_ligas[l_sel] = n_sel
-                    guardar_memoria_bot(cargar_memoria_bot())
-                    st.success(f"Guardado permanentemente."); st.rerun()
+                if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
+                    enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
+            
+                with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
+                    ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
+                    ca1, ca2, ca3 = st.columns([2,1,1])
+                    l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
+                    n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
+                    if ca3.button("GUARDAR CAMBIO"):
+                        st.session_state.memoria_ligas[l_sel] = n_sel
+                        guardar_memoria_bot(cargar_memoria_bot())
+                        st.success(f"Guardado permanentemente."); st.rerun()
 
+                st.markdown("---")
+                st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
+                col_f1, col_f2 = st.columns([2, 1])
+                with col_f1: 
+                    nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
+                with col_f2: 
+                    btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
+                
+                if btn_esp:
+                    color_objetivo = NIVELES_CONFIG[nivel_busqueda]
+                    filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
+                    st.success(f"Encontrados {len(filtrados)} partidos.")
+                    for p in filtrados: 
+                        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
+                else:
+                    st.success(f"Encontrados {len(st.session_state.lista_partidos)} partidos.")
+                    for p in st.session_state.lista_partidos: 
+                        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
+
+            # --- BLOQUE FINAL (FUERA DEL IF DE PARTIDOS PERO DENTRO DE TAB_API) ---
             st.markdown("---")
-            st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
-            col_f1, col_f2 = st.columns([2, 1])
-            with col_f1: nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
-            with col_f2: btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
+            with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
+                mem = cargar_memoria_bot()
+                st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
             
-            if btn_esp:
-                color_objetivo = NIVELES_CONFIG[nivel_busqueda]
-                filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
-                st.success(f"Encontrados {len(filtrados)} partidos.")
-                for p in filtrados: st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
-            else:
-                st.success(f"Encontrados {len(st.session_state.lista_partidos)} partidos.")
-                for p in st.session_state.lista_partidos: st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
+            if st.button("LIMPIAR MEMORIA (RESET)"):
+                guardar_memoria_bot({"ultimo_lote": 0, "fecha_actual": "", "enviados": [], "acertados": 0, "fallados": 0, "patrones_fallidos": {}, "memoria_ligas": {}})
+                st.session_state.memoria_ligas = {}
+                st.rerun()
 
-    st.markdown("---")
-    with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
-        mem = cargar_memoria_bot()
-        st.write(f"Lote actual: {mem['ultimo_lote']} | ID Canal: `{CHAT_ID_CANAL}`")
-        if st.button("LIMPIAR MEMORIA (RESET)"):
-            guardar_memoria_bot({"ultimo_lote": 0, "fecha_actual": "", "enviados": [], "acertados": 0, "fallados": 0, "patrones_fallidos": {}, "memoria_ligas": {}})
-            st.session_state.memoria_ligas = {}; st.rerun()
-
+# ESTO VA AL FINAL DEL ARCHIVO, FUERA DE TODA FUNCIÓN O TAB
 if __name__ == "__main__":
-    if os.getenv("GITHUB_ACTIONS") == "true": ejecutar_analisis_automatico()
+    if os.getenv("GITHUB_ACTIONS") == "true": 
+        ejecutar_analisis_automatico()
