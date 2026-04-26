@@ -346,68 +346,44 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
     if not partidos_para_enviar: return
-    mensaje = f"📦 *{memoria['ultimo_lote']}er Lote de Escaneo*\n📅 {ahora.strftime('%d/%m/%Y %H:%M')}\n----------------------------------\n\n"
+    lista_para_reporte = [] 
     enviados_count = 0
+
     for p in partidos_para_enviar:
-        if enviados_count >= 12: break
+        if enviados_count >= 12: 
+            break
+        # 1. Obtener estadísticas y calcular Lambdas de 3 puntos
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
         # Así debe quedar (BIEN)
         l_loc = (fh + av) / 2
         l_vis = (fv + ah) / 2
         l_total = l_loc + l_vis
-        # Asegúrate de poner todas estas variables para que coincidan con el return de tu motor
+        # 2. Ejecutar Motor (Decide si es Sólido, Riesgoso o Neutral)
         etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
-        p_val = round(o25)
-        etiq_v = ""
-        # Lógica de etiquetas de Value (CORREGIDA)
-        if 57 <= p_val <= 60 or p_val in [65, 72, 73]: 
-            etiq_v = "🔥 *VALUE SÓLIDO (1.5)*\n"
-        elif 61 <= p_val <= 64: 
-            etiq_v = "🔥 *VALUE SÓLIDO (2.5)*\n"
-        elif p_val >= 70: # Aquí cubres 70, 71, 74 y cualquier valor alto
-            etiq_v = "⚠️ *VALUE RIESGOSO*\n"
-        else:
-            # Opción de seguridad: que te diga el número si no es ninguna de las anteriores
-            etiq_v = f"📊 *ANÁLISIS NEUTRAL ({p_val})*\n"
+        
+        # 3. Preparar datos para el Reporte de 5 Divisiones (Colores)
+        p['letra'] = letra
+        p['p_val'] = round(o25)
+        lista_para_reporte.append(p)
 
-        # Preparamos los datos para el envío
-        stats_envio = {
-            "pronostico_final": etiq_v,
-            "lambda": (fh + av + fv + ah) / 4, # Ejemplo de cálculo para aprendizaje
-            "inercia": "Baja" if p_val < 60 else "Alta" # Según tus criterios
-        }
-
-        # LLAMADA A LA NUEVA FUNCIÓN (La que detecta En Vivo)
+        # 4. Alerta individual y Registro ADN para el lunes
+        stats_envio = {"pronostico_final": etiq, "letra": letra, "lambda": lt}
         enviar_pronostico_telegram(p, stats_envio)
+        
+        registrar_adn_partido(
+            h=p.get('h', 'N/A'), a=p.get('a', 'N/A'),
+            liga=p.get('liga', 'N/A'), letra=letra,
+            l_total=lt, l_h=l_loc, l_a=l_vis, p_val=round(o25)
+        )
+        
+        memoria["enviados"].append(p['id'])
         enviados_count += 1
-                           
-    if enviados_count > 0:
-        mensaje += f"----------------------------------\n📊 *EFICACIA:* ✅ {memoria['acertados']} | ❌ {memoria['fallados']}"
-        try:
-            # 1. Envío a Telegram (lo que ya tenías)
-            enviar_pronostico_telegram(p, stats_envio)
-            
-            # 2. Registro de memoria local (lo que ya tenías)
-            mem["enviados"].append(f"{p.get('h')}_{p.get('a')}")
-            guardar_memoria_bot(mem)
-            
-            # 3. CONEXIÓN DE APRENDIZAJE (El registro para el lunes)
-            # Usamos 'p' y 'stats_envio' que son las variables de tu bucle
-            registrar_adn_partido(
-                h=p.get('h', 'N/A'),
-                a=p.get('a', 'N/A'),
-                liga=p.get('liga', 'N/A'),
-                letra=stats_envio.get('letra', '?'),
-                l_total=stats_envio.get('lambda', 0),
-                l_h=p.get('l_h', 0), 
-                l_a=p.get('l_a', 0),
-                p_val=p.get('p_val', 0)
-            )
-            print(f"🧬 ADN guardado con éxito: {p.get('h')}")
 
-        except Exception as e:
-            print(f"❌ Error en el proceso de envío/registro: {e}")
+    # --- ESTE ES EL FINAL DE LA FUNCIÓN ---
+    if lista_para_reporte:
+        enviar_reporte_maestro_organizado(lista_para_reporte)
+        guardar_memoria_bot(memoria)
 
 def generar_reporte_discrepancias():
     import os, json
