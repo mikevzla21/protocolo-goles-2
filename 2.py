@@ -340,8 +340,14 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
 # --- CEREBRO CON LOGICA DE VALUE Y EFICACIA (FILTRO DE ENVÍO ACTUALIZADO) ---
 def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
-    ahora = datetime.now(pytz.timezone(tz_ref))
     
+    try:
+        bot.send_message(CHAT_ID, "⚠️ Test: El bot ha iniciado el escaneo correctamente.")
+    except Exception as e:
+        print(f"❌ Error enviando test: {e}")
+        
+    ahora = datetime.now(pytz.timezone(tz_ref))
+ 
     # 1. RESET AUTOMÁTICO DE ENVIADOS (Para que procese los de hoy de nuevo)
     if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
