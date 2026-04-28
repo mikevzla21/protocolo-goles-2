@@ -6,14 +6,6 @@ import json
 import os
 import telebot
 
-if 'partidos_del_dia' not in st.session_state:
-    st.session_state.partidos_del_dia = []
-if 'lista_partidos' not in st.session_state:
-    st.session_state.lista_partidos = []
-
-if 'analisis_realizado' not in st.session_state:
-    st.session_state.analisis_realizado = False
-
 # =====================================================
 # BLOQUE 1: DICCIONARIO DE PATRONES MAESTROS
 # Mapeo: lambda_total -> (Over 1.5, Over 2.5, Letra)
@@ -54,7 +46,13 @@ CHAT_ID = CHAT_ID_CANAL
 # 1. Configuración de página e Interfaz
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.set_page_config(page_title="Analizador Miguel", layout="wide", page_icon="⚽")
-
+    if 'partidos_del_dia' not in st.session_state:
+    st.session_state.partidos_del_dia = []
+    if 'lista_partidos' not in st.session_state:
+    st.session_state.lista_partidos = []
+    if 'analisis_realizado' not in st.session_state:
+    st.session_state.analisis_realizado = False
+    
 # --- BLOQUE DE MEMORIA EVOLUTIVO (CON APRENDIZAJE) ---
 def cargar_memoria_bot():
     mem_base = {
