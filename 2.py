@@ -341,75 +341,69 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
 def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
     
+    # Test de conexión inicial
     try:
-        bot.send_message(CHAT_ID, "⚠️ Test: El bot ha iniciado el escaneo correctamente.")
+        bot.send_message(CHAT_ID, "🚀 *Escáner Iniciado:* Buscando patrones maestros...")
     except Exception as e:
-        print(f"❌ Error enviando test: {e}")
+        print(f"❌ Error de conexión: {e}")
         
     ahora = datetime.now(pytz.timezone(tz_ref))
- 
-    # 1. RESET AUTOMÁTICO DE ENVIADOS (Para que procese los de hoy de nuevo)
-    if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
+    
+    # Reset diario
+    if memoria.get("fecha_actual") != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
     
-    # Línea de emergencia: Forzamos limpieza para que aparezcan en el desplegable ahora mismo
+    # LÍNEA DE EMERGENCIA (Borrar después de que funcione)
     memoria["enviados"] = [] 
 
-    memoria["ultimo_lote"] += 1
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    
     if not partidos_para_enviar:
         return
 
     lista_para_reporte = [] 
-    enviados_count = 0
 
     for p in partidos_para_enviar:
-        if enviados_count >= 15: # Límite de partidos por lote
-            break
-        
-        # Obtención de estadísticas y cálculo de Lambdas
-        fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
-        fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        
-        l_loc = (fh + av) / 2
-        l_vis = (fv + ah) / 2
-        l_total = l_loc + l_vis
-        
-        # MOTOR LÓGICO: Obtiene Etiqueta, Letra y Probabilidad
-        # Nota: Asegúrate de que tu función motor_logico_maestro devuelva estos 6 valores
-        etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
-        prob_final = round(o25)
+        try:
+            # 1. Tu lógica de calculadora manual (API > Sofascore)
+            fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+            fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+            
+            l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
+            l_total = l_loc + l_vis
+            
+            # 2. Motor Maestro (% real y Letra)
+            etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
+            prob_f = round(o25)
 
-        # INYECCIÓN DE DATOS PARA EL REPORTE DE 5 NIVELES
-        p['letra'] = letra
-        p['p_val'] = prob_final
-        p['etiq_final'] = etiq 
-        
-        lista_para_reporte.append(p)
+            # 3. Inyección de datos (Doble nombre para evitar errores de función)
+            p['letra'] = letra
+            p['p_val'] = prob_f
+            p['etiq_final'] = etiq
+            p['etiq_reporte'] = etiq 
+            
+            lista_para_reporte.append(p)
 
-        # REGISTRO ADN (Para el análisis del lunes)
-        registrar_adn_partido(
-            h=p.get('h', 'N/A'), 
-            a=p.get('a', 'N/A'),
-            liga=p.get('liga', 'N/A'), 
-            letra=letra,
-            l_total=lt, 
-            l_h=l_loc, 
-            l_a=l_vis, 
-            p_val=prob_final
-        )
-        
-        # Marcamos como enviado en la memoria local
-        memoria["enviados"].append(p['id'])
-        enviados_count += 1
+            # 4. Registro ADN (Para que el bot aprenda el lunes)
+            registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt, l_loc, l_vis, prob_f)
+            
+            memoria["enviados"].append(p['id'])
+            
+        except Exception as e:
+            print(f"⚠️ Error procesando {p.get('h')}: {e}")
+            continue
 
-    # --- ENVÍO DEL DESPLEGABLE ÚNICO (LAS 5 DIVISIONES) ---
+    # --- ENVÍO DEL REPORTE (Con protección total) ---
     if lista_para_reporte:
-        # Esta función genera el mensaje con círculos 🟢🟡🟠🔵⚪
-        enviar_reporte_maestro_organizado(lista_para_reporte)
-        guardar_memoria_bot(memoria)
-        print(f"✅ Reporte Maestro enviado con {len(lista_para_reporte)} partidos.")
+        try:
+            # Intentamos el reporte organizado (el de los círculos de colores)
+            enviar_reporte_maestro_organizado(lista_para_reporte)
+            guardar_memoria_bot(memoria)
+            print(f"✅ Reporte Maestro enviado con {len(lista_para_reporte)} partidos.")
+        except Exception as e:
+            # Si el reporte falla, el bot te avisa el motivo por Telegram
+            error_msg = f"❌ Error en Reporte Organizado: {str(e)[:100]}"
+            bot.send_message(CHAT_ID, error_msg)
+            print(error_msg)
 
 def generar_reporte_discrepancias():
     import os, json
