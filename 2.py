@@ -617,4 +617,5 @@ if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
 
-
+print("Intentando envío final de confirmación...")
+bot.send_message(CHAT_ID, "✅ Conexión total: El script llegó al final sin errores.")
