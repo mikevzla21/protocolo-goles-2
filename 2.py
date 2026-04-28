@@ -48,7 +48,7 @@ except:
     TOKEN_TELEGRAM = "8331811774:AAEuXEMABQE_uH4DZEovQXaiP6uG_3bqrgM"
     CHAT_ID_CANAL = "-1003959034940"
 
-bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
+bot = telebot.TeleBot(TOKEN_TELEGRAM)
 CHAT_ID = CHAT_ID_CANAL
 
 # 1. Configuración de página e Interfaz
