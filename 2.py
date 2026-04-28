@@ -49,6 +49,7 @@ except:
     CHAT_ID_CANAL = "-1003959034940"
 
 bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
+CHAT_ID = CHAT_ID_CANAL
 
 # 1. Configuración de página e Interfaz
 if not os.getenv("GITHUB_ACTIONS") == "true":
@@ -616,6 +617,3 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
 if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
-
-print("Intentando envío final de confirmación...")
-bot.send_message(CHAT_ID, "✅ Conexión total: El script llegó al final sin errores.")
