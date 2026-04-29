@@ -142,7 +142,7 @@ def enviar_reporte_diario_patrones():
         if mem["patrones_aprendizaje"]["saturacion_techo_exito"] > 0:
             msg += f"🔥 *Saturación:* El λ alto se ha cumplido {mem['patrones_aprendizaje']['saturacion_techo_exito']} veces hoy.\n"
             
-        bot_telegram.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
+        bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
         
         # Resetear reporte para mañana pero mantener aprendizaje
         mem["reporte_enviado"] = True
@@ -186,7 +186,7 @@ def enviar_reporte_maestro_organizado(lista_partidos):
             mensaje += "\n"
 
     # Envío a Telegram
-    bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+    bot.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
 
 # --- BUSCADOR DE DATOS REALES (API) ---
 def obtener_stats_maestras(team_id, league_id):
@@ -234,7 +234,7 @@ def enviar_pronostico_telegram(partido, stats_calculadas):
         try:
             # Usamos CHAT_ID_CANAL (que es tu dirección)
             # Usamos mensaje (que es donde guardamos el texto del pronóstico líneas arriba)
-            bot_telegram.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+            bot.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
             
             # 4. REGISTRO EN MEMORIA
             mem["enviados"].append(p_id)
@@ -421,7 +421,7 @@ ahora = datetime.now()
 if ahora.weekday() == 0 and ahora.hour == 2:
     try:
         rep = generar_reporte_discrepancias()
-        bot_telegram.send_message(CHAT_ID_CANAL, f"📊 **REPORTE**\n\n{rep}", parse_mode="Markdown")
+        bot.send_message(CHAT_ID_CANAL, f"📊 **REPORTE**\n\n{rep}", parse_mode="Markdown")
     except Exception as e:
         print(f"Error reporte: {e}")
 
