@@ -31,27 +31,44 @@ PATRONES_MAESTROS = {
 }
 
 # --- CONFIGURACIÓN DE SEGURIDAD Y TELEGRAM ---
-try:
-    MI_KEY_PRIVADA = st.secrets["MI_KEY_PRIVADA"]
-    TOKEN_TELEGRAM = st.secrets["TOKEN_TELEGRAM"]
-    CHAT_ID_CANAL = st.secrets["CHAT_ID_CANAL"]
-except:
-    MI_KEY_PRIVADA = "7a7a86dd262319eb7c938354c20c7215"
-    TOKEN_TELEGRAM = "8331811774:AAEuXEMABQE_uH4DZEovQXaiP6uG_3bqrgM"
-    CHAT_ID_CANAL = "-1003959034940"
+# --- CONFIGURACIÓN DE SEGURIDAD (REEMPLAZO) ---
 
+# 1. Intentamos leer de las variables de entorno (Prioridad para GitHub Actions)
+TOKEN_TELEGRAM = os.getenv("TOKEN_TELEGRAM")
+CHAT_ID_CANAL = os.getenv("CHAT_ID_CANAL")
+MI_KEY_PRIVADA = os.getenv("MI_KEY_PRIVADA")
+
+# 2. Si no están en el entorno, buscamos en st.secrets (Para cuando abras la Web)
+if not TOKEN_TELEGRAM:
+    try:
+        TOKEN_TELEGRAM = st.secrets["TOKEN_TELEGRAM"]
+        CHAT_ID_CANAL = st.secrets["CHAT_ID_CANAL"]
+        MI_KEY_PRIVADA = st.secrets["MI_KEY_PRIVADA"]
+    except:
+        # 3. Valores de respaldo si todo lo anterior falla
+        TOKEN_TELEGRAM = "8331811774:AAEuXEMABQE_uH4DZEovQXaiP6uG_3bqrgM"
+        CHAT_ID_CANAL = "-1003959034940"
+        MI_KEY_PRIVADA = "7a7a86dd262319eb7c938354c20c7215"
+
+# Definición unificada para que el resto del código no falle
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 CHAT_ID = CHAT_ID_CANAL
 
-# 1. Configuración de página e Interfaz
-if not os.getenv("GITHUB_ACTIONS") == "true":
+# PRUEBA DE ARRANQUE (Manda un mensaje apenas empieza)
+try:
+    bot.send_message(CHAT_ID, "🚀 Sistema Iniciado (Bypass OK)")
+except:
+    pass
+
+# --- CONFIGURACIÓN DE INTERFAZ (Protegida) ---
+if os.getenv("GITHUB_ACTIONS") != "true":
     st.set_page_config(page_title="Analizador Miguel", layout="wide", page_icon="⚽")
     if 'partidos_del_dia' not in st.session_state:
-    st.session_state.partidos_del_dia = []
+        st.session_state.partidos_del_dia = []
     if 'lista_partidos' not in st.session_state:
-    st.session_state.lista_partidos = []
+        st.session_state.lista_partidos = []
     if 'analisis_realizado' not in st.session_state:
-    st.session_state.analisis_realizado = False
+        st.session_state.analisis_realizado = False
     
 # --- BLOQUE DE MEMORIA EVOLUTIVO (CON APRENDIZAJE) ---
 def cargar_memoria_bot():
