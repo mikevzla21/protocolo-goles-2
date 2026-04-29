@@ -54,12 +54,6 @@ if not TOKEN_TELEGRAM:
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 CHAT_ID = CHAT_ID_CANAL
 
-# PRUEBA DE ARRANQUE (Manda un mensaje apenas empieza)
-try:
-    bot.send_message(CHAT_ID, "🚀 Sistema Iniciado (Bypass OK)")
-except:
-    pass
-
 # --- CONFIGURACIÓN DE INTERFAZ (Protegida) ---
 if os.getenv("GITHUB_ACTIONS") != "true":
     st.set_page_config(page_title="Analizador Miguel", layout="wide", page_icon="⚽")
