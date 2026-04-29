@@ -472,23 +472,23 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
 
     with tab_calc:
         # --- DENTRO DEL TAB_CALC (Boton Ejecutar Análisis) ---
-    if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
-        l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
-        l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
+        if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
+            l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
+            l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
     
     # ... (tus ajustes de jornada y puesto se mantienen igual)
     
-    l_total_input = l_loc_calc + l_vis_calc
+            l_total_input = l_loc_calc + l_vis_calc
     
     # CORRECCIÓN AQUÍ: Pasamos loc, vis y total sin redondear
-    etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc_calc, l_vis_calc, l_total_input)
+            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc_calc, l_vis_calc, l_total_input)
     
-    st.session_state.analisis_realizado = True
-    st.session_state.resultados = {
-        "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
-        "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
-        "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
-    }
+            st.session_state.analisis_realizado = True
+            st.session_state.resultados = {
+                "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
+                "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
+                "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
+            }
             
             # Calculamos el lambda total para la función
             l_total_input = l_loc_calc + l_vis_calc
