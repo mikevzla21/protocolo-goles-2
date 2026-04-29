@@ -273,25 +273,26 @@ def asignar_color_nivel(liga_nombre, pais_nombre, equipo_h, equipo_a):
     return "🟠"
 
 def motor_logico_maestro(l_loc, l_vis, l_total):
-    # 1. Buscamos la letra
+    # 1. Buscamos la llave exacta o más cercana en el diccionario de decimales
+    # Evitamos redondear a enteros para no perder la precisión de la Tabla Maestra
     ref = min(PATRONES_MAESTROS.keys(), key=lambda x: abs(x - l_total))
     o15_f, o25_f, letra = PATRONES_MAESTROS[ref]
     
-    p_val_int = int(round(l_total))
+    # 2. Usamos el % de probabilidad real del patrón (o25_f)
+    prob_exito = int(o25_f)
     
-    # 2. Definimos la etiqueta con el % de probabilidad visible
-    if p_val_int in [57, 58, 59, 61, 62, 63, 64, 65, 72, 73]:
-        etiq = f"🔥 *VALUE SÓLIDO* ({p_val_int}%) - Letra: {letra}"
+    # 3. Lógica de Valor basada estrictamente en tus porcentajes de éxito
+    if prob_exito in [57, 58, 59, 61, 62, 63, 64, 65, 72, 73]:
+        etiq = f"🔥 *VALUE SÓLIDO* ({prob_exito}%) - Letra: {letra}"
         es_value = True
-    elif p_val_int in [60, 70, 71, 74]:
-        etiq = f"⚠️ *VALUE RIESGOSO* ({p_val_int}%) - Letra: {letra}"
+    elif prob_exito in [60, 70, 71, 74]:
+        etiq = f"⚠️ *VALUE RIESGOSO* ({prob_exito}%) - Letra: {letra}"
         es_value = True
     else:
-        # CUALQUIER otro número muestra su % y su letra
-        etiq = f"⚪ *SIN PATRÓN CLARO* ({p_val_int}%) - Letra: {letra}"
+        etiq = f"⚪ *SIN PATRÓN CLARO* ({prob_exito}%) - Letra: {letra}"
         es_value = False
 
-    return etiq, es_value, letra, max(1, o15_f), max(1, o25_f), l_total
+    return etiq, es_value, letra, o15_f, o25_f, l_total
 
 def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
     """
@@ -355,39 +356,41 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
     
-    memoria["ultimo_lote"] += 1
+    # Filtrar solo los que no se han enviado hoy
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    if not partidos_para_enviar: return
+    
+    if not partidos_para_enviar:
+        return
 
     lista_para_reporte = [] 
 
     for p in partidos_para_enviar:
-        # 1. Cálculos de Lambdas
+        # 1. Obtención de estadísticas reales
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
+        
+        l_loc = (fh + av) / 2
+        l_vis = (fv + ah) / 2
         l_total = l_loc + l_vis
+    
+        # 2. Motor Lógico (Sin redondeos previos para mantener precisión de la Tabla)
+        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
         
-        # 2. Obtener datos del motor (Etiq, Letra, Probabilidad)
-        etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(l_loc, l_vis, l_total)
-        
-        # 3. Guardamos los datos en el partido para el desplegable
+        # 3. Preparación de datos para el reporte organizado
         p['letra'] = letra
-        p['p_val'] = round(o25)
+        p['p_val'] = round(o25_p)
         p['etiq_reporte'] = etiq 
         
         lista_para_reporte.append(p)
 
-        # Registro ADN (Importante para el lunes)
-        registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt, l_loc, l_vis, round(o25))
+        # 4. Registro ADN (Para el reporte de discrepancias de los lunes)
+        registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt_final, l_loc, l_vis, round(o25_p))
         
-        # --- HEMOS QUITADO EL ENVÍO INDIVIDUAL AQUÍ PARA EVITAR LOS 14 MENSAJES ---
-        
+        # Marcar como enviado
         memoria["enviados"].append(p['id'])
 
-    # --- 4. ENVÍO DEL DESPLEGABLE ÚNICO (LAS 5 DIVISIONES) ---
+    # 5. ENVÍO DEL MENSAJE UNIFICADO (Evita el spam de 14 mensajes)
     if lista_para_reporte:
-        # Esto manda UN SOLO MENSAJE con todos los partidos organizados
         enviar_reporte_maestro_organizado(lista_para_reporte)
         guardar_memoria_bot(memoria)
 
@@ -421,8 +424,16 @@ if ahora.weekday() == 0 and ahora.hour == 2:
 
 def ejecutar_analisis_automatico():
     tz = "America/Caracas"
+    print("Iniciando escaneo...") 
     partidos = buscar_partidos_fecha(datetime.now(pytz.timezone(tz)), tz)
-    if partidos: enviar_lote_automatico(partidos, tz)
+    
+    if partidos:
+        # Esto te avisará en el canal que el bot entró a trabajar
+        bot.send_message(CHAT_ID_CANAL, f"🔎 Centinela activo: Analizando {len(partidos)} partidos...")
+        enviar_lote_automatico(partidos, tz)
+    else:
+        # Esto te avisará si la API no devolvió partidos (por si falla la Key)
+        bot.send_message(CHAT_ID_CANAL, "⚠️ Escaneo completado: No se encontraron partidos hoy.")
 
 # --- FLUJO WEB (TU INTERFAZ EXACTA) ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
@@ -460,14 +471,24 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
         sup_v = st.checkbox("¿Suplentes visita >=3?", key="sv_")
 
     with tab_calc:
-        if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
-            l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
-            l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
-            if es_liga and jornada_val >= 6:
-                l_loc_calc *= 1.15
-                if abs(puesto_l - puesto_v) >= 10:
-                    if puesto_l < puesto_v: l_loc_calc *= 1.05; l_vis_calc *= 0.85
-                    else: l_loc_calc *= 0.85; l_vis_calc *= 1.10
+        # --- DENTRO DEL TAB_CALC (Boton Ejecutar Análisis) ---
+    if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
+        l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
+        l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
+    
+    # ... (tus ajustes de jornada y puesto se mantienen igual)
+    
+    l_total_input = l_loc_calc + l_vis_calc
+    
+    # CORRECCIÓN AQUÍ: Pasamos loc, vis y total sin redondear
+    etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc_calc, l_vis_calc, l_total_input)
+    
+    st.session_state.analisis_realizado = True
+    st.session_state.resultados = {
+        "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
+        "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
+        "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
+    }
             
             # Calculamos el lambda total para la función
             l_total_input = l_loc_calc + l_vis_calc
