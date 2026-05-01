@@ -48,7 +48,7 @@ if not TOKEN_TELEGRAM:
         # 3. Valores de respaldo si todo lo anterior falla
         TOKEN_TELEGRAM = "8331811774:AAEuXEMABQE_uH4DZEovQXaiP6uG_3bqrgM"
         CHAT_ID_CANAL = "-1003959034940"
-        MI_KEY_PRIVADA = "7a7a86dd262319eb7c938354c20c7215"
+        MI_KEY_PRIVADA = "f4f022b7570b30f4c1240d7911f37071"
 
 # Definición unificada para que el resto del código no falle
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
