@@ -608,52 +608,96 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
                 with st.spinner("Escaneando..."): 
                     st.session_state.lista_partidos = buscar_partidos_fecha(f_input, tz_input)
 
-            # --- VALIDACIÓN DE SEGURIDAD ---
-            if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-                if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
-                    enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
-            
-                with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
-                    ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
-                    ca1, ca2, ca3 = st.columns([2,1,1])
-                    l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
-                    n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
-                    if ca3.button("GUARDAR CAMBIO"):
-                        st.session_state.memoria_ligas[l_sel] = n_sel
-                        guardar_memoria_bot(cargar_memoria_bot())
-                        st.success(f"Guardado permanentemente."); st.rerun()
+            # --- VALIDACIÓN DE SEGURIDAD Y DESPACHO ---
+if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
+    
+    # 1. Botón Original de Envío Masivo (Mantiene tu lógica previa)
+    if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
+        enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
+    
+    # 2. Ajuste Dinámico de Categoría (Persistencia en memoria_ligas)
+    with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
+        ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
+        ca1, ca2, ca3 = st.columns([2, 1, 1])
+        l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
+        n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
+        if ca3.button("GUARDAR CAMBIO"):
+            st.session_state.memoria_ligas[l_sel] = n_sel
+            # Actualizamos solo el diccionario de ligas en la memoria física
+            mem_actual = cargar_memoria_bot()
+            mem_actual['memoria_ligas'] = st.session_state.memoria_ligas
+            guardar_memoria_bot(mem_actual)
+            st.success(f"Nivel de liga guardado permanentemente.")
+            st.rerun()
 
-                st.markdown("---")
-                st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
-                col_f1, col_f2 = st.columns([2, 1])
-                with col_f1: 
-                    nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
-                with col_f2: 
-                    btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
-                
-                if btn_esp:
-                    color_objetivo = NIVELES_CONFIG[nivel_busqueda]
-                    filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
-                    st.success(f"Encontrados {len(filtrados)} partidos.")
-                    for p in filtrados: 
-                        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
-                else:
-                    st.success(f"Encontrados {len(st.session_state.lista_partidos)} partidos.")
-                    for p in st.session_state.lista_partidos: 
-                        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
+    st.markdown("---")
+    st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
+    col_f1, col_f2 = st.columns([2, 1])
+    
+    with col_f1: 
+        nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
+    with col_f2: 
+        btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
+    
+    # 3. Lógica de Previsualización y Filtrado
+    color_objetivo = NIVELES_CONFIG[nivel_busqueda]
+    if btn_esp:
+        filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
+        st.success(f"Encontrados {len(filtrados)} partidos para nivel {nivel_busqueda}.")
+    else:
+        filtrados = st.session_state.lista_partidos
+        st.info(f"Mostrando {len(filtrados)} partidos totales (Sin filtrar).")
 
-            # --- BLOQUE FINAL (FUERA DEL IF DE PARTIDOS PERO DENTRO DE TAB_API) ---
-            st.markdown("---")
-            with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
-                mem = cargar_memoria_bot()
-                st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
-            
-            if st.button("LIMPIAR MEMORIA (RESET)"):
-                guardar_memoria_bot({"ultimo_lote": 0, "fecha_actual": "", "enviados": [], "acertados": 0, "fallados": 0, "patrones_fallidos": {}, "memoria_ligas": {}})
-                st.session_state.memoria_ligas = {}
-                st.rerun()
+    for p in filtrados: 
+        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
 
-# ESTO VA AL FINAL DEL ARCHIVO, FUERA DE TODA FUNCIÓN O TAB
+    # --- 4. DESPACHO FILTRADO CON PATRONES MAESTROS (SOLO GOLES) ---
+    if btn_esp and filtrados:
+        st.markdown("---")
+        if st.button(f"🚀 DESPACHAR {len(filtrados)} PRONÓSTICOS DE {nivel_busqueda}"):
+            with st.spinner("Procesando Lambda y Consultando Tabla Maestra..."):
+                for p in filtrados:
+                    # Cálculo de Lambda base (Solo Goles)
+                    fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+                    fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+                    l_total = ((fh + av) / 2) + ((fv + ah) / 2)
+                    
+                    # Motor de Patrones: Obtiene Letra y Probabilidad del Over 2.5
+                    etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(0, 0, l_total)
+                    
+                    # Construcción del mensaje para Telegram
+                    msg = (
+                        f"{p['color']} **{nivel_busqueda}**\n"
+                        f"🏟️ **{p['h']} vs {p['a']}**\n"
+                        f"📊 Patrón: **{letra}** | Prob Over 2.5: **{int(o25)}%**\n"
+                        f"🏷️ {etiq}\n"
+                        f"🕒 {p['hora']} (Vzla)"
+                    )
+                    bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
+            st.success(f"Señales de {nivel_busqueda} enviadas.")
+
+# --- BLOQUE FINAL (ESTADO Y RESET SEGURO) ---
+st.markdown("---")
+with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
+    mem = cargar_memoria_bot()
+    st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
+
+# RESET INTELIGENTE: NO BORRA LAS LIGAS INTEGRADAS
+if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
+    mem_actual = cargar_memoria_bot()
+    guardar_memoria_bot({
+        "ultimo_lote": 0, 
+        "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
+        "enviados": [], 
+        "acertados": 0, 
+        "fallados": 0, 
+        "patrones_fallidos": {}, 
+        "memoria_ligas": mem_actual.get('memoria_ligas', {}) # PROTECCIÓN DE LIGAS
+    })
+    st.success("Memoria de envíos reseteada. La base de datos de ligas se mantuvo intacta.")
+    st.rerun()
+
+# --- EJECUCIÓN AUTOMÁTICA GITHUB ---
 if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
