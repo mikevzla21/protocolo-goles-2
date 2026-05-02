@@ -488,17 +488,24 @@ if ahora.hour == 2:
         print(f"Error en reporte diario: {e}")
 
 def ejecutar_analisis_automatico():
-    tz = "America/Caracas"
-    print("Iniciando escaneo...") 
-    partidos = buscar_partidos_fecha(datetime.now(pytz.timezone(tz)), tz)
+    # 1. Forzar la zona horaria de Venezuela para evitar desfases con UTC
+    tz_str = "America/Caracas"
+    venezuela_tz = pytz.timezone(tz_str)
     
-    if partidos:
-        # Esto te avisará en el canal que el bot entró a trabajar
-        bot.send_message(CHAT_ID_CANAL, f"🔎 Centinela activo: Analizando {len(partidos)} partidos...")
-        enviar_lote_automatico(partidos, tz)
+    # 2. Convertir la fecha actual a STRING exacto YYYY-MM-DD
+    # Esto es lo que garantiza que la API no devuelva una lista vacía
+    fecha_hoy = datetime.now(venezuela_tz).strftime("%Y-%m-%d")
+    
+    # 3. Llamada a la API (Pasando el string de fecha y la zona horaria)
+    partidos = buscar_partidos_fecha(fecha_hoy, tz_str)
+    
+    if partidos and len(partidos) > 0:
+        # 4. Solo si hay partidos, disparamos el envío automático
+        # Esta función debe contener tu lógica de Lambda y Patrones Maestros
+        enviar_lote_automatico(partidos, tz_str)
     else:
-        # Esto te avisará si la API no devolvió partidos (por si falla la Key)
-        bot.send_message(CHAT_ID_CANAL, "⚠️ Escaneo completado: No se encontraron partidos hoy.")
+        # Debugging: Esto te dirá en Telegram exactamente qué fecha está buscando el bot
+        bot.send_message(CHAT_ID_CANAL, f"⚠️ No se hallaron juegos para la fecha: {fecha_hoy}")
 
 # --- FLUJO WEB (TU INTERFAZ EXACTA) ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
