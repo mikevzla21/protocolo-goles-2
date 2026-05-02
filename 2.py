@@ -507,34 +507,31 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
     with tab_calc:
         # --- DENTRO DEL TAB_CALC (Boton Ejecutar Análisis) ---
         if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
+            # 1. Cálculos de Lambda
             l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
             l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
-    
-    # ... (tus ajustes de jornada y puesto se mantienen igual)
-    
             l_total_input = l_loc_calc + l_vis_calc
     
-    # CORRECCIÓN AQUÍ: Pasamos loc, vis y total sin redondear
-            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc_calc, l_vis_calc, l_total_input)
+            # 2. LLAMADO ÚNICO Y CORRECTO: Enviamos los 3 argumentos requeridos
+            # Usamos 0, 0 para loc y vis porque para goles mandas el l_total_input
+            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total_input)
     
+            # 3. Guardado de resultados en la sesión
             st.session_state.analisis_realizado = True
             st.session_state.resultados = {
-                "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
-                "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
-                "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
+                "o15": o15_p, 
+                "o25": o25_p, 
+                "lt": lt_final, 
+                "letra": letra, 
+                "ll": l_loc_calc, 
+                "lv": l_vis_calc, 
+                "la": l_a, 
+                "va": v_a, 
+                "lc_l": l_c, 
+                "lc_v": v_c, 
+                "pronostico": etiq
             }
-            
-            # Calculamos el lambda total para la función
-            l_total_input = l_loc_calc + l_vis_calc
-            # Desempaquetado correcto según el return de tu función:
-            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_total_input, l_total_input)
-            
-            st.session_state.analisis_realizado = True
-            st.session_state.resultados = {
-                "o15": o15_p, "o25": o25_p, "lt": lt_final, "letra": letra, 
-                "ll": l_loc_calc, "lv": l_vis_calc, "la": l_a, "va": v_a, 
-                "lc_l": l_c, "lc_v": v_c, "pronostico": etiq
-            }
+            st.success("Análisis completado con éxito.")
                               
         # BLOQUE DE VISUALIZACIÓN (Alineado a la izquierda para ejecución inmediata)
         if st.session_state.analisis_realizado:
@@ -662,19 +659,20 @@ if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
                     fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
                     l_total = ((fh + av) / 2) + ((fv + ah) / 2)
                     
-                    # Motor de Patrones: Obtiene Letra y Probabilidad del Over 2.5
-                    etiq, es_val, letra, o15, o25, lt = motor_logico_maestro(0, 0, l_total)
+                    # FIX: Enviamos 0, 0 para l_loc y l_vis para cumplir con los 3 argumentos requeridos
+                    # Pero usamos l_total para que el motor asigne la Letra y Probabilidad
+                    etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total)
                     
                     # Construcción del mensaje para Telegram
                     msg = (
                         f"{p['color']} **{nivel_busqueda}**\n"
                         f"🏟️ **{p['h']} vs {p['a']}**\n"
-                        f"📊 Patrón: **{letra}** | Prob Over 2.5: **{int(o25)}%**\n"
+                        f"📊 Patrón: **{letra}** | Prob Over 2.5: **{int(o25_p)}%**\n"
                         f"🏷️ {etiq}\n"
                         f"🕒 {p['hora']} (Vzla)"
                     )
                     bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
-            st.success(f"Señales de {nivel_busqueda} enviadas.")
+            st.success(f"Señales de {nivel_busqueda} enviadas correctamente.")
 
 # --- BLOQUE FINAL (ESTADO Y RESET SEGURO) ---
 st.markdown("---")
