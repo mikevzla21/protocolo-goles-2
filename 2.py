@@ -6,6 +6,20 @@ import json
 import os
 import telebot
 
+def cargar_memoria_bot():
+    if os.path.exists("memoria_centinela.json"):
+        with open("memoria_centinela.json", "r") as f:
+            return json.load(f)
+    return {"memoria_ligas": {}}
+
+def guardar_memoria_bot(datos):
+    with open("memoria_centinela.json", "w") as f:
+        json.dump(datos, f, indent=4)
+
+def limpiar_pantalla():
+    st.session_state.analisis_realizado = False
+    st.session_state.resultados = {}
+
 # =====================================================
 # BLOQUE 1: DICCIONARIO DE PATRONES MAESTROS
 # Mapeo: lambda_total -> (Over 1.5, Over 2.5, Letra)
