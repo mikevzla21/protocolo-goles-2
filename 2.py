@@ -461,14 +461,31 @@ def generar_reporte_discrepancias():
     except Exception as e:
         return f"❌ Error: {e}"
 
-# --- ACTIVADOR LUNES 2 AM (PEGADO AL BORDE IZQUIERDO) ---
-ahora = datetime.now()
-if ahora.weekday() == 0 and ahora.hour == 2:
+# --- ACTIVADOR DIARIO 2 AM (SIN RESTRICCIÓN DE DÍA) ---
+# Usamos pytz para garantizar que el reporte salga a las 2 AM de Venezuela
+venezuela_tz = pytz.timezone("America/Caracas")
+ahora = datetime.now(venezuela_tz)
+
+# Se activa todos los días cuando el reloj marca las 2:00 AM
+if ahora.hour == 2:
     try:
+        # 1. Generamos el reporte de discrepancias (Inercia/Patrones)
         rep = generar_reporte_discrepancias()
-        bot.send_message(CHAT_ID_CANAL, f"📊 **REPORTE**\n\n{rep}", parse_mode="Markdown")
+        
+        # 2. Construimos el mensaje diario
+        mensaje_final = (
+            f"📊 **REPORTE DIARIO DE DISCREPANCIAS**\n"
+            f"📅 Fecha: {ahora.strftime('%d/%m/%Y')}\n"
+            f"🕒 Corte: 02:00 AM (Vzla)\n\n"
+            f"{rep}"
+        )
+        
+        # 3. Envío al canal de Telegram
+        bot.send_message(CHAT_ID_CANAL, mensaje_final, parse_mode="Markdown")
+        
     except Exception as e:
-        print(f"Error reporte: {e}")
+        # Log de error en consola si algo falla en el envío
+        print(f"Error en reporte diario: {e}")
 
 def ejecutar_analisis_automatico():
     tz = "America/Caracas"
