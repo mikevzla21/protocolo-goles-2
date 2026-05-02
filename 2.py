@@ -461,51 +461,41 @@ def generar_reporte_discrepancias():
     except Exception as e:
         return f"❌ Error: {e}"
 
-# --- ACTIVADOR DIARIO 2 AM (SIN RESTRICCIÓN DE DÍA) ---
-# Usamos pytz para garantizar que el reporte salga a las 2 AM de Venezuela
+# --- ACTIVADOR DIARIO INTELIGENTE ---
 venezuela_tz = pytz.timezone("America/Caracas")
 ahora = datetime.now(venezuela_tz)
+mem = cargar_memoria_bot()
 
-# Se activa todos los días cuando el reloj marca las 2:00 AM
-if ahora.hour == 2:
+# 1. Control del Reporte de las 2 AM
+if ahora.hour == 2 and not mem.get("reporte_enviado_hoy", False):
     try:
-        # 1. Generamos el reporte de discrepancias (Inercia/Patrones)
         rep = generar_reporte_discrepancias()
-        
-        # 2. Construimos el mensaje diario
-        mensaje_final = (
-            f"📊 **REPORTE DIARIO DE DISCREPANCIAS**\n"
-            f"📅 Fecha: {ahora.strftime('%d/%m/%Y')}\n"
-            f"🕒 Corte: 02:00 AM (Vzla)\n\n"
-            f"{rep}"
-        )
-        
-        # 3. Envío al canal de Telegram
-        bot.send_message(CHAT_ID_CANAL, mensaje_final, parse_mode="Markdown")
-        
+        if rep and "No hay datos" not in rep: 
+            bot.send_message(CHAT_ID_CANAL, f"📊 **REPORTE DIARIO DE DISCREPANCIAS**\n\n{rep}", parse_mode="Markdown")
+            mem["reporte_enviado_hoy"] = True 
+            guardar_memoria_bot(mem)
     except Exception as e:
-        # Log de error en consola si algo falla en el envío
-        print(f"Error en reporte diario: {e}")
+        print(f"Error reporte: {e}")
 
+# 2. Reset del flag (Se puede hacer al inicio de la jornada o a una hora muerta)
+if ahora.hour == 4: 
+    mem["reporte_enviado_hoy"] = False
+    guardar_memoria_bot(mem)
+
+# --- REPARACIÓN DEL DESPACHO ---
 def ejecutar_analisis_automatico():
-    # 1. Forzar la zona horaria de Venezuela para evitar desfases con UTC
-    tz_str = "America/Caracas"
-    venezuela_tz = pytz.timezone(tz_str)
+    tz = "America/Caracas"
+    # FIX: Forzamos el formato string para que la API siempre encuentre los partidos
+    fecha_api = datetime.now(pytz.timezone(tz)).strftime("%Y-%m-%d")
     
-    # 2. Convertir la fecha actual a STRING exacto YYYY-MM-DD
-    # Esto es lo que garantiza que la API no devuelva una lista vacía
-    fecha_hoy = datetime.now(venezuela_tz).strftime("%Y-%m-%d")
-    
-    # 3. Llamada a la API (Pasando el string de fecha y la zona horaria)
-    partidos = buscar_partidos_fecha(fecha_hoy, tz_str)
+    partidos = buscar_partidos_fecha(fecha_api, tz) # Enviamos el string limpio
     
     if partidos and len(partidos) > 0:
-        # 4. Solo si hay partidos, disparamos el envío automático
-        # Esta función debe contener tu lógica de Lambda y Patrones Maestros
-        enviar_lote_automatico(partidos, tz_str)
+        # Aquí procesará el Lambda Total y la Letra del Patrón Maestro
+        enviar_lote_automatico(partidos, tz) 
     else:
-        # Debugging: Esto te dirá en Telegram exactamente qué fecha está buscando el bot
-        bot.send_message(CHAT_ID_CANAL, f"⚠️ No se hallaron juegos para la fecha: {fecha_hoy}")
+        # Solo llegará aquí si realmente no hay juegos programados en la API
+        bot.send_message(CHAT_ID_CANAL, f"⚠️ Escaneo completado: No se hallaron juegos para {fecha_api}.")
 
 # --- FLUJO WEB (TU INTERFAZ EXACTA) ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
