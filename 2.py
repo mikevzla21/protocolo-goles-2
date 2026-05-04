@@ -87,30 +87,38 @@ def cargar_memoria_bot():
         "acertados": 0, 
         "fallados": 0,
         "patrones_aprendizaje": {
-            "inercia_baja_falla": 0,
-            "saturacion_techo_exito": 0,
-            "equilibrio_bunker_verde": 0,
-            "ligas_negras": []
+            "inercia_baja_falla": 0,    # Seguimiento de fallos por falta de ritmo
+            "exceso_expectativa_falla": 0, # Cuando el Lambda era alto pero el partido fue Under
+            "analisis_detallado_fallos": {}, # Registro para estudiar el error por liga
+            "historial_ajuste_lambda": []  # Para calibrar el Protocolo Maestro
         },
         "reporte_enviado": False,
-        "memoria_ligas": {} 
+        "memoria_ligas": {} # Se mantiene para la categorización de niveles (1-5)
     }
+    
     if os.path.exists("memoria_bot.json"):
         try:
             with open("memoria_bot.json", "r") as f:
                 data = json.load(f)
                 fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+                
+                # Reset diario de envíos pero preservando el aprendizaje de goles
                 if data.get("fecha_actual") != fecha_hoy:
                     data["fecha_actual"] = fecha_hoy
                     data["reporte_enviado"] = False
-                # Sincronización con Streamlit para la calculadora manual
+                    data["enviados"] = []
+                
+                # Sincronización con la interfaz de usuario
                 if not os.getenv("GITHUB_ACTIONS") == "true":
                     if 'memoria_ligas' not in st.session_state:
                         st.session_state.memoria_ligas = data.get("memoria_ligas", {})
                     else:
                         data["memoria_ligas"] = st.session_state.memoria_ligas
+                
                 return data
-        except: pass
+        except Exception as e:
+            print(f"Error cargando memoria: {e}")
+            
     return mem_base
 
 def guardar_memoria_bot(datos):
@@ -119,6 +127,18 @@ def guardar_memoria_bot(datos):
             datos["memoria_ligas"] = st.session_state.memoria_ligas
     with open("memoria_bot.json", "w") as f:
         json.dump(datos, f)
+
+def procesar_datos_diarios(lista_partidos):
+    # SECCIÓN 1: Cálculo del Lambda Real
+    for p in lista_partidos:
+        # Aseguramos valores numéricos para evitar errores en el cálculo
+        fh = float(p.get('goles_favor_local', 0))
+        ah = float(p.get('goles_contra_local', 0))
+        fv = float(p.get('goles_favor_visitante', 0))
+        av = float(p.get('goles_contra_visitante', 0))
+        
+        # Protocolo Maestro: Lambda Total
+        p['lambda_total'] = (fh + ah + fv + av) / 2
 
 def registrar_aprendizaje(resultado, datos_partido):
     mem = cargar_memoria_bot()
@@ -135,40 +155,51 @@ def registrar_aprendizaje(resultado, datos_partido):
 memoria_temp = cargar_memoria_bot()
 
 def enviar_reporte_diario_patrones():
+    venezuela_tz = pytz.timezone("America/Caracas")
+    ahora = datetime.now(venezuela_tz)
     mem = cargar_memoria_bot()
-    ahora = datetime.now()
     
-    # Solo se envía una vez al día, después de las 10 PM (hora Venezuela)
-    if ahora.hour >= 6 and not mem.get("reporte_enviado", False):
+    # Usamos la misma hora que el activador
+    if ahora.hour == 2 and not mem.get("reporte_patrones_enviado", False):
+        partidos_crudos = st.session_state.get('lista_partidos', [])
+        
+        if partidos_crudos:
+            resultados_listos = procesar_datos_diarios(partidos_crudos)
+            enviar_reporte_maestro_organizado(resultados_listos)    
+        
+        # Alineación corregida: 4 espacios desde el inicio del IF
         msg = "🧠 **REPORTE DIARIO DE APRENDIZAJE**\n\n"
         msg += f"✅ Acertados: {mem['acertados']} | ❌ Fallados: {mem['fallados']}\n\n"
         msg += "📈 **Patrones Detectados:**\n"
         
         if mem["patrones_aprendizaje"]["inercia_baja_falla"] > 2:
-            msg += "⚠️ *Alerta:* La 'Inercia Baja' está causando fallos. Recomiendo asegurar con Búnker.\n"
-        
-        if mem["patrones_aprendizaje"]["saturacion_techo_exito"] > 0:
-            msg += f"🔥 *Saturación:* El λ alto se ha cumplido {mem['patrones_aprendizaje']['saturacion_techo_exito']} veces hoy.\n"
+            msg += "⚠️ *Alerta:* Inercia Baja fallando. Asegurar con Búnker.\n"
             
         bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
         
-        # Resetear reporte para mañana pero mantener aprendizaje
-        mem["reporte_enviado"] = True
+        # Guardamos con una llave única para este reporte
+        mem["reporte_patrones_enviado"] = True
         guardar_memoria_bot(mem)
 
 def enviar_reporte_maestro_organizado(lista_partidos):
-    # El ":" de arriba es lo que le faltaba a tu código para que el IF no diera error
+    # 1. Ajuste de hora local para Venezuela (UTC-4)
+    venezuela_tz = pytz.timezone("America/Caracas")
+    ahora = datetime.now(venezuela_tz)
+    hora_actual = ahora.strftime("%H:%M")
+
     if not lista_partidos:
-        print(f"[{datetime.now().strftime('%H:%M')}] Escaneo finalizado: Sin oportunidades.")
+        print(f"[{hora_actual}] Escaneo finalizado: Sin oportunidades.")
         return 
 
-    hora_actual = datetime.now().strftime("%H:%M")
+    # 2. PROCESAMIENTO: Calculamos Lambda y validamos datos antes de clasificar
+    # Esto asegura que p.get('lambda_total') y p.get('color') existan
+    lista_procesada = procesar_datos_diarios(lista_partidos)
     
-    # Encabezado con la hora exacta
+    # Encabezado con tu estilo original
     mensaje = f"🔍 **Escaneo de partidos**\n🕒 **Hora:** {hora_actual}\n"
     mensaje += "—" * 20 + "\n\n"
 
-    # Secciones por colores
+    # 3. Secciones por colores (Tu estructura esencial)
     secciones = {
         "VERDE": {"emoji": "🟢", "partidos": []},
         "AMARILLO": {"emoji": "🟡", "partidos": []},
@@ -177,19 +208,23 @@ def enviar_reporte_maestro_organizado(lista_partidos):
         "BLANCO": {"emoji": "⚪", "partidos": []}
     }
 
-    # Clasificación
-    for p in lista_partidos:
+    # 4. Clasificación usando la lista ya procesada
+    for p in lista_procesada:
         color_asignado = p.get('color', 'BLANCO').upper()
         if color_asignado in secciones:
             secciones[color_asignado]["partidos"].append(p)
 
-    # Construcción visual
+    # 5. Construcción visual reintegrando el Lambda Real (Goles)
     for nombre, data in secciones.items():
         if data["partidos"]:
             mensaje += f"{data['emoji']} **DIVISIÓN {nombre}** {data['emoji']}\n"
             for p in data["partidos"]:
+                # Extraemos Lambda para el reporte de goles
+                lambda_val = p.get('lambda_total', 0)
+                
                 mensaje += f"📍 `{p.get('h')} vs {p.get('a')}`\n"
-                mensaje += f"📊 Letra: {p.get('letra', '?')} | Val: {p.get('p_val', 0)}%\n"
+                # Añadimos λ Real junto a tus datos de Letra y Valor
+                mensaje += f"📊 λ Real: {lambda_val:.2f} | Letra: {p.get('letra', '?')} | Val: {p.get('p_val', 0)}%\n"
                 mensaje += "—" * 12 + "\n"
             mensaje += "\n"
 
@@ -383,12 +418,14 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
         
-        l_loc = (fh + av) / 2
-        l_vis = (fv + ah) / 2
-        l_total = l_loc + l_vis
+        # Aplicando Protocolo Maestro: (Suma de los 4 factores) / 2
+        l_total = (fh + ah + fv + av) / 2
+        
+        # Mantenemos l_loc y l_vis solo para el cálculo de victoria (opcional)
+        l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
     
         # 2. Motor Lógico (Goles)
-        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
+        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total)
         
         # 3. Preparación de datos para el reporte organizado
         p['letra'] = letra
@@ -466,16 +503,20 @@ venezuela_tz = pytz.timezone("America/Caracas")
 ahora = datetime.now(venezuela_tz)
 mem = cargar_memoria_bot()
 
-# 1. Control del Reporte de las 2 AM
-if ahora.hour == 2 and not mem.get("reporte_enviado_hoy", False):
-    try:
-        rep = generar_reporte_discrepancias()
-        if rep and "No hay datos" not in rep: 
-            bot.send_message(CHAT_ID_CANAL, f"📊 **REPORTE DIARIO DE DISCREPANCIAS**\n\n{rep}", parse_mode="Markdown")
-            mem["reporte_enviado_hoy"] = True 
-            guardar_memoria_bot(mem)
-    except Exception as e:
-        print(f"Error reporte: {e}")
+if ahora.hour == 2:
+    # Sub-bloque 1: Discrepancias
+    if not mem.get("reporte_discrepancias_enviado", False):
+        try:
+            rep = generar_reporte_discrepancias()
+            if rep and "No hay datos" not in rep: 
+                bot.send_message(CHAT_ID_CANAL, f"📊 **REPORTE DIARIO DE DISCREPANCIAS**\n\n{rep}", parse_mode="Markdown")
+                mem["reporte_discrepancias_enviado"] = True 
+                guardar_memoria_bot(mem)
+        except Exception as e:
+            print(f"Error reporte: {e}")
+
+    # Sub-bloque 2: Llamada a la función de patrones
+    enviar_reporte_diario_patrones()
 
 # 2. Reset del flag (Se puede hacer al inicio de la jornada o a una hora muerta)
 if ahora.hour == 4: 
@@ -630,100 +671,108 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
                 tz_input = st.selectbox("🕒 País Referencia (Hora)", lista_tz, index=tz_idx)
         
             if st.button("🚀 INICIAR ESCANEO DE JORNADA", key="btn_scan"):
-                with st.spinner("Escaneando..."): 
-                    st.session_state.lista_partidos = buscar_partidos_fecha(f_input, tz_input)
+        
+                with st.spinner("Escaneando e integrando Protocolo Maestro..."): 
+        
+                    partidos_encontrados = buscar_partidos_fecha(f_input, tz_input)
+        
+                    if partidos_encontrados:
+            # Sección 2: Procesamiento de Lambda Real y Colores
+            # Aquí se aplica (fh + ah + fv + av) / 2
+                        secciones_listas = procesar_datos_diarios(partidos_encontrados)
+            
+            # Sección 3: Guardar en el estado
+                        st.session_state.lista_partidos = partidos_encontrados
+                        st.success(f"✅ Se procesaron {len(partidos_encontrados)} partidos con éxito.")
+                    else:
+                        st.warning("⚠️ No se encontraron partidos para esta fecha.")
 
-            # --- VALIDACIÓN DE SEGURIDAD Y DESPACHO ---
-if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-    
-    # 1. Botón Original de Envío Masivo (Mantiene tu lógica previa)
-    if st.button("🌙 ENVIAR LOTE AL CANAL (MODO CENTINELA)"): 
-        enviar_lote_automatico(st.session_state.lista_partidos, tz_input)
-    
-    # 2. Ajuste Dinámico de Categoría (Persistencia en memoria_ligas)
-    with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
-        ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
-        ca1, ca2, ca3 = st.columns([2, 1, 1])
-        l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
-        n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
-        if ca3.button("GUARDAR CAMBIO"):
-            st.session_state.memoria_ligas[l_sel] = n_sel
-            # Actualizamos solo el diccionario de ligas en la memoria física
-            mem_actual = cargar_memoria_bot()
-            mem_actual['memoria_ligas'] = st.session_state.memoria_ligas
-            guardar_memoria_bot(mem_actual)
-            st.success(f"Nivel de liga guardado permanentemente.")
-            st.rerun()
+    # --- VALIDACIÓN DE SEGURIDAD---
+    if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
+        
+        # 2. Ajuste Dinámico de Categoría (Persistencia en memoria_ligas)
+        with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
+            ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
+            ca1, ca2, ca3 = st.columns([2, 1, 1])
+            l_sel = ca1.selectbox("Selecciona Liga a corregir", ligas_presentes)
+            n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
+            if ca3.button("GUARDAR CAMBIO"):
+                st.session_state.memoria_ligas[l_sel] = n_sel
+                # Actualizamos solo el diccionario de ligas en la memoria física
+                mem_actual = cargar_memoria_bot()
+                mem_actual['memoria_ligas'] = st.session_state.memoria_ligas
+                guardar_memoria_bot(mem_actual)
+                st.success(f"Nivel de liga guardado permanentemente.")
+                st.rerun()
 
-    st.markdown("---")
-    st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
-    col_f1, col_f2 = st.columns([2, 1])
-    
-    with col_f1: 
-        nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
-    with col_f2: 
-        btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
-    
-    # 3. Lógica de Previsualización y Filtrado
-    color_objetivo = NIVELES_CONFIG[nivel_busqueda]
-    if btn_esp:
-        filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
-        st.success(f"Encontrados {len(filtrados)} partidos para nivel {nivel_busqueda}.")
-    else:
-        filtrados = st.session_state.lista_partidos
-        st.info(f"Mostrando {len(filtrados)} partidos totales (Sin filtrar).")
-
-    for p in filtrados: 
-        st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']}")
-
-    # --- 4. DESPACHO FILTRADO CON PATRONES MAESTROS (SOLO GOLES) ---
-    if btn_esp and filtrados:
         st.markdown("---")
-        if st.button(f"🚀 DESPACHAR {len(filtrados)} PRONÓSTICOS DE {nivel_busqueda}"):
-            with st.spinner("Procesando Lambda y Consultando Tabla Maestra..."):
-                for p in filtrados:
-                    # Cálculo de Lambda base (Solo Goles)
-                    fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
-                    fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-                    l_total = ((fh + av) / 2) + ((fv + ah) / 2)
-                    
-                    # FIX: Enviamos 0, 0 para l_loc y l_vis para cumplir con los 3 argumentos requeridos
-                    # Pero usamos l_total para que el motor asigne la Letra y Probabilidad
-                    etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total)
-                    
-                    # Construcción del mensaje para Telegram
-                    msg = (
-                        f"{p['color']} **{nivel_busqueda}**\n"
-                        f"🏟️ **{p['h']} vs {p['a']}**\n"
-                        f"📊 Patrón: **{letra}** | Prob Over 2.5: **{int(o25_p)}%**\n"
-                        f"🏷️ {etiq}\n"
-                        f"🕒 {p['hora']} (Vzla)"
-                    )
-                    bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
-            st.success(f"Señales de {nivel_busqueda} enviadas correctamente.")
+        st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
+        col_f1, col_f2 = st.columns([2, 1])
+        
+        with col_f1: 
+            nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
+        with col_f2: 
+            btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
+        
+        # 3. Lógica de Previsualización y Filtrado
+        color_objetivo = NIVELES_CONFIG[nivel_busqueda]
+        if btn_esp:
+            filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
+            st.success(f"Encontrados {len(filtrados)} partidos para nivel {nivel_busqueda}.")
+        else:
+            filtrados = st.session_state.lista_partidos
+            st.info(f"Mostrando {len(filtrados)} partidos totales (Sin filtrar).")
 
-# --- BLOQUE FINAL (ESTADO Y RESET SEGURO) ---
-st.markdown("---")
-with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
-    mem = cargar_memoria_bot()
-    st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
+        for p in filtrados:
+    # 1. Extraemos el Lambda Real primero (Limpieza)
+    # Usamos .get() para evitar errores si el dato no existe
+            lambda_val = p.get('lambda_total', 0)
+    
+    # 2. Ahora la línea de st.write es más corta y segura
+            st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']} | **λ:** {lambda_val:.2f}")
 
-# RESET INTELIGENTE: NO BORRA LAS LIGAS INTEGRADAS
-if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
-    mem_actual = cargar_memoria_bot()
-    guardar_memoria_bot({
-        "ultimo_lote": 0, 
-        "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
-        "enviados": [], 
-        "acertados": 0, 
-        "fallados": 0, 
-        "patrones_fallidos": {}, 
-        "memoria_ligas": mem_actual.get('memoria_ligas', {}) # PROTECCIÓN DE LIGAS
-    })
-    st.success("Memoria de envíos reseteada. La base de datos de ligas se mantuvo intacta.")
-    st.rerun()
+        # --- BLOQUE FINAL (ESTADO Y RESET SEGURO) ---
+    st.markdown("---")
+    with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
+        mem = cargar_memoria_bot()
+        st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
+
+    # RESET INTELIGENTE: NO BORRA LAS LIGAS INTEGRADAS
+    if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
+        mem_actual = cargar_memoria_bot()
+    # Definimos la nueva estructura para que APRENDA del fallo
+        nueva_memoria = {
+            "ultimo_lote": 0, 
+            "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
+            "enviados": [], 
+            "acertados": 0, 
+            "fallados": 0, 
+            "patrones_aprendizaje": mem_actual.get('patrones_aprendizaje', {
+                "inercia_baja_falla": 0,
+                "saturacion_techo_exito": 0,
+                "analisis_fallos_ligas": {}, # CAMBIADO: Para estudiar el error
+                "historial_ajuste_lambda": [] 
+            }),
+            "reporte_enviado": False,
+            "memoria_ligas": mem_actual.get('memoria_ligas', {}) # Mantiene la base de datos
+    }
+    
+        guardar_memoria_bot(nueva_memoria)
+        st.success("✅ Reset completado. El bot mantiene el historial de fallos para ajustar el Protocolo.")
+        st.rerun()
 
 # --- EJECUCIÓN AUTOMÁTICA GITHUB ---
 if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
+      
+
+
+
+
+
+
+
+
+
+
