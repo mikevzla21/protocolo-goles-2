@@ -369,11 +369,19 @@ def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
     with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
 
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
-    f_str = fecha_obj.strftime("%Y-%m-%d")
+    # --- AJUSTE DE COHERENCIA PARA EVITAR EL ERROR ---
+    # Si recibimos un string (GitHub), lo usamos. Si es objeto (Streamlit), convertimos.
+    if isinstance(fecha_obj, str):
+        f_str = fecha_obj
+    else:
+        f_str = fecha_obj.strftime("%Y-%m-%d")
+    
     url = "https://v3.football.api-sports.io/fixtures"
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
     params = {"date": f_str}
+    
     PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey", "Australia"]
+    
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200:
@@ -381,22 +389,49 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
             eventos = data.get('response', [])
             lista_final = []
             tz_local = pytz.timezone(zona_horaria)
+            
             for ev in eventos:
                 liga_nombre = ev.get('league', {}).get('name', 'Desconocida')
                 pais_nombre = ev.get('league', {}).get('country', 'Internacional')
                 h, a = ev.get('teams', {}).get('home', {}).get('name', 'Local'), ev.get('teams', {}).get('away', {}).get('name', 'Visita')
+                
+                # Aplicación de Niveles (Protocolo Maestro)
                 nivel_actual = asignar_color_nivel(liga_nombre, pais_nombre, h, a)
+                
+                # Filtro de Calidad: Solo ligas de interés o países top
                 if nivel_actual in ["🟢", "🟡", "🔵", "⚪"] or pais_nombre in PAISES_TOP:
                     status_short = ev.get('fixture', {}).get('status', {}).get('short')
-                    if status_short in ['FT', 'AET', 'PEN']: continue
+                    
+                    # No procesamos partidos terminados
+                    if status_short in ['FT', 'AET', 'PEN']: 
+                        continue
+                    
                     ts = ev.get('fixture', {}).get('timestamp', 0)
                     hora_str = datetime.fromtimestamp(ts, pytz.utc).astimezone(tz_local).strftime("%H:%M")
-                    lista_final.append({"id": ev.get('fixture', {}).get('id'), "h_id": ev.get('teams', {}).get('home', {}).get('id'), "a_id": ev.get('teams', {}).get('away', {}).get('id'), "l_id": ev.get('league', {}).get('id'), "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), "ts": ts, "liga": liga_nombre, "pais": pais_nombre, "h": h, "a": a, "desc": ev.get('fixture', {}).get('status', {}).get('long', 'Disponible'), "hora": hora_str, "color": nivel_actual})
+                    
+                    lista_final.append({
+                        "id": ev.get('fixture', {}).get('id'), 
+                        "h_id": ev.get('teams', {}).get('home', {}).get('id'), 
+                        "a_id": ev.get('teams', {}).get('away', {}).get('id'), 
+                        "l_id": ev.get('league', {}).get('id'), 
+                        "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
+                        "ts": ts, 
+                        "liga": liga_nombre, 
+                        "pais": pais_nombre, 
+                        "h": h, 
+                        "a": a, 
+                        "desc": ev.get('fixture', {}).get('status', {}).get('long', 'Disponible'), 
+                        "hora": hora_str, 
+                        "color": nivel_actual
+                    })
+            
+            # Ordenamos: Primero En Vivo, luego por Nivel Maestro (🟢 primero), luego por Hora
             lista_final.sort(key=lambda x: (not x['live'], x['color'] != "🟢", x['ts']))
             return lista_final
         return []
-    except: return []
-
+    except: 
+        return []
+    
 # --- CEREBRO CON LOGICA DE VALUE Y EFICACIA (FILTRO DE ENVÍO ACTUALIZADO) ---
 def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
@@ -538,12 +573,16 @@ def ejecutar_analisis_automatico():
         # Solo llegará aquí si realmente no hay juegos programados en la API
         bot.send_message(CHAT_ID_CANAL, f"⚠️ Escaneo completado: No se hallaron juegos para {fecha_api}.")
 
-# --- FLUJO WEB (TU INTERFAZ EXACTA) ---
+# --- FLUJO WEB ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.write("### ⚽ ANALIZADOR MIGUEL")
+    
+    # Aseguramos la carga de la memoria física antes de usarla en la sesión
+    memoria_temp = cargar_memoria_bot() 
+    
     if 'analisis_realizado' not in st.session_state:
         st.session_state.analisis_realizado = False
-        st.session_state.resultados = {}
+    
     if 'memoria_ligas' not in st.session_state:
         st.session_state.memoria_ligas = memoria_temp.get("memoria_ligas", {})
     def limpiar_pantalla():
@@ -766,13 +805,6 @@ if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
       
-
-
-
-
-
-
-
 
 
 
