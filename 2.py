@@ -369,8 +369,7 @@ def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
     with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
 
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
-    # --- AJUSTE DE COHERENCIA PARA EVITAR EL ERROR ---
-    # Si recibimos un string (GitHub), lo usamos. Si es objeto (Streamlit), convertimos.
+    # CORRECCIÓN: Maneja string (GitHub) u objeto (Streamlit)
     if isinstance(fecha_obj, str):
         f_str = fecha_obj
     else:
@@ -395,16 +394,12 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
                 pais_nombre = ev.get('league', {}).get('country', 'Internacional')
                 h, a = ev.get('teams', {}).get('home', {}).get('name', 'Local'), ev.get('teams', {}).get('away', {}).get('name', 'Visita')
                 
-                # Aplicación de Niveles (Protocolo Maestro)
                 nivel_actual = asignar_color_nivel(liga_nombre, pais_nombre, h, a)
                 
-                # Filtro de Calidad: Solo ligas de interés o países top
-                if nivel_actual in ["🟢", "🟡", "🔵", "⚪"] or pais_nombre in PAISES_TOP:
+                # AHORA INCLUYE NARANJA: Para que no te oculte partidos "mentirosamente"
+                if nivel_actual in ["🟢", "🟡", "🔵", "⚪", "🟠"] or pais_nombre in PAISES_TOP:
                     status_short = ev.get('fixture', {}).get('status', {}).get('short')
-                    
-                    # No procesamos partidos terminados
-                    if status_short in ['FT', 'AET', 'PEN']: 
-                        continue
+                    if status_short in ['FT', 'AET', 'PEN']: continue
                     
                     ts = ev.get('fixture', {}).get('timestamp', 0)
                     hora_str = datetime.fromtimestamp(ts, pytz.utc).astimezone(tz_local).strftime("%H:%M")
@@ -415,22 +410,15 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
                         "a_id": ev.get('teams', {}).get('away', {}).get('id'), 
                         "l_id": ev.get('league', {}).get('id'), 
                         "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
-                        "ts": ts, 
-                        "liga": liga_nombre, 
-                        "pais": pais_nombre, 
-                        "h": h, 
-                        "a": a, 
+                        "ts": ts, "liga": liga_nombre, "pais": pais_nombre, "h": h, "a": a, 
                         "desc": ev.get('fixture', {}).get('status', {}).get('long', 'Disponible'), 
-                        "hora": hora_str, 
-                        "color": nivel_actual
+                        "hora": hora_str, "color": nivel_actual
                     })
             
-            # Ordenamos: Primero En Vivo, luego por Nivel Maestro (🟢 primero), luego por Hora
             lista_final.sort(key=lambda x: (not x['live'], x['color'] != "🟢", x['ts']))
             return lista_final
         return []
-    except: 
-        return []
+    except: return []
     
 # --- CEREBRO CON LOGICA DE VALUE Y EFICACIA (FILTRO DE ENVÍO ACTUALIZADO) ---
 def enviar_lote_automatico(partidos_detectados, tz_ref):
@@ -560,18 +548,23 @@ if ahora.hour == 4:
 
 # --- REPARACIÓN DEL DESPACHO ---
 def ejecutar_analisis_automatico():
-    tz = "America/Caracas"
-    # FIX: Forzamos el formato string para que la API siempre encuentre los partidos
-    fecha_api = datetime.now(pytz.timezone(tz)).strftime("%Y-%m-%d")
+    tz_name = "America/Caracas"
+    tz = pytz.timezone(tz_name)
+    # Obtenemos la fecha actual en Venezuela
+    fecha_hoy = datetime.now(tz)
+    fecha_api = fecha_hoy.strftime("%Y-%m-%d")
     
-    partidos = buscar_partidos_fecha(fecha_api, tz) # Enviamos el string limpio
+    # Reporte de diagnóstico para Telegram
+    bot.send_message(CHAT_ID_CANAL, f"🤖 Escaneo iniciado para la fecha: {fecha_api}")
+    
+    # Enviamos el string limpio a la función corregida
+    partidos = buscar_partidos_fecha(fecha_api, tz_name)
     
     if partidos and len(partidos) > 0:
         # Aquí procesará el Lambda Total y la Letra del Patrón Maestro
-        enviar_lote_automatico(partidos, tz) 
+        enviar_lote_automatico(partidos, tz_name) 
     else:
-        # Solo llegará aquí si realmente no hay juegos programados en la API
-        bot.send_message(CHAT_ID_CANAL, f"⚠️ Escaneo completado: No se hallaron juegos para {fecha_api}.")
+        bot.send_message(CHAT_ID_CANAL, f"⚠️ No se hallaron juegos válidos para {fecha_api} (Filtros: Países Top/Niveles).")
 
 # --- FLUJO WEB ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
@@ -805,6 +798,3 @@ if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
       
-
-
-
