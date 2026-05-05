@@ -570,159 +570,146 @@ def ejecutar_analisis_automatico():
 if not os.getenv("GITHUB_ACTIONS") == "true":
     st.write("### ⚽ ANALIZADOR MIGUEL")
     
-    # Aseguramos la carga de la memoria física antes de usarla en la sesión
-    memoria_temp = cargar_memoria_bot() 
-    
-    if 'analisis_realizado' not in st.session_state:
-        st.session_state.analisis_realizado = False
-    
-    if 'memoria_ligas' not in st.session_state:
-        st.session_state.memoria_ligas = memoria_temp.get("memoria_ligas", {})
-    def limpiar_pantalla():
-        st.session_state.analisis_realizado = False
-        st.session_state.resultados = {}
+# Aseguramos la carga de la memoria física antes de usarla en la sesión
+memoria_temp = cargar_memoria_bot() 
 
-    tab_calc, tab_api = st.tabs(["📊 Calculadora Manual", "🚀 Escáner 24/7"])
+if 'analisis_realizado' not in st.session_state:
+    st.session_state.analisis_realizado = False
 
-    with st.sidebar:
-        st.header("⚙️ Parámetros de entrada")
-        tipo_p = st.selectbox("Tipo de Partido", ["Liga", "Torneo", "Campo Neutral / Amistoso"])
-        cat_aprendizaje = st.selectbox("Nivel de Fútbol", list(NIVELES_CONFIG.keys()))
-        es_liga = (tipo_p == "Liga")
-        jornada_val = st.number_input("Jornada", min_value=1, value=7, disabled=not es_liga)
+if 'memoria_ligas' not in st.session_state:
+    st.session_state.memoria_ligas = memoria_temp.get("memoria_ligas", {})
+
+if 'lista_partidos' not in st.session_state:
+    st.session_state.lista_partidos = []
+
+def limpiar_pantalla():
+    st.session_state.analisis_realizado = False
+    st.session_state.resultados = {}
+
+tab_calc, tab_api = st.tabs(["📊 Calculadora Manual", "🚀 Escáner 24/7"])
+
+with st.sidebar:
+    st.header("⚙️ Parámetros de entrada")
+    tipo_p = st.selectbox("Tipo de Partido", ["Liga", "Torneo", "Campo Neutral / Amistoso"])
+    cat_aprendizaje = st.selectbox("Nivel de Fútbol", list(NIVELES_CONFIG.keys()))
+    es_liga = (tipo_p == "Liga")
+    jornada_val = st.number_input("Jornada", min_value=1, value=7, disabled=not es_liga)
+    st.markdown("---")
+    st.markdown("### 📊 Datos Local")
+    l_a = st.number_input("Anotados Local", value=1.50, key="la_")
+    l_c = st.number_input("Concedidos Local", value=1.00, key="lc_")
+    puesto_l = st.number_input("Puesto tabla local", value=1, min_value=1, key="pl_", disabled=not es_liga)
+    baja_l = st.checkbox("¿Baja sensible Local?", key="bl_")
+    sup_l = st.checkbox("¿Suplentes local >=3?", key="sl_")
+    st.markdown("---")
+    st.markdown("### 📊 Datos Visitante")
+    v_a = st.number_input("Anotados Visitante", value=1.50, key="va_")
+    v_c = st.number_input("Concedidos Visitante", value=1.00, key="vc_")
+    puesto_v = st.number_input("Puesto tabla visitante", value=15, min_value=1, key="pv_", disabled=not es_liga)
+    baja_v = st.checkbox("¿Baja sensible Visitante?", key="bv_")
+    sup_v = st.checkbox("¿Suplentes visita >=3?", key="sv_")
+
+with tab_calc:
+    if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
+        l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
+        l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
+        l_total_input = l_loc_calc + l_vis_calc
+
+        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total_input)
+
+        st.session_state.analisis_realizado = True
+        st.session_state.resultados = {
+            "o15": o15_p, 
+            "o25": o25_p, 
+            "lt": lt_final, 
+            "letra": letra, 
+            "ll": l_loc_calc, 
+            "lv": l_vis_calc, 
+            "la": l_a, 
+            "va": v_a, 
+            "lc_l": l_c, 
+            "lc_v": v_c, 
+            "pronostico": etiq
+        }
+        st.success("Análisis completado con éxito.")
+                                      
+    if st.session_state.analisis_realizado:
+        res = st.session_state.resultados
+        p_val = int(float(res.get("o25", 0)))
+        pico = float(res.get("lt", 0))
+
+        f_msg, f_col, f_tipo, bloqueado = "SIN PATRÓN CLARO", "#4a4a4a", "VACIO", True
+        
+        if p_val in [57, 58, 59, 65, 72, 73]: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 1.5 GOLES", "#00ff00", "1.5", False
+        elif 61 <= p_val <= 64: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 2.5 GOLES", "#00ff00", "2.5", False
+        elif p_val in [70, 71, 74]: f_msg, f_col, f_tipo, bloqueado = "VALUE 1.5 RIESGOSO", "#e74c3c", "RIESGO_15", False
+        elif p_val == 60: f_msg, f_col, f_tipo, bloqueado = "VALUE 2.5 RIESGOSO", "#e74c3c", "RIESGO_25", False
+        
+        if f_tipo in ["1.5", "2.5"]:
+            st.markdown(f'<div class="alerta-cuota">⚠️ VALUE {f_tipo}</div>', unsafe_allow_html=True)
+    
+        c1, c2 = st.columns(2)
+        with c1:
+            p_l, p_v = (res["ll"]/(res["lt"]+0.001))*100, (res["lv"]/(res["lt"]+0.001))*100
+            fav = "Local" if p_l > p_v else "Visitante"
+            st.markdown(f"| Mercado | Probabilidad |\n| :--- | :--- |\n| Over 1.5 | **{res['o15']:.1f}%** |\n| Over 2.5 | **{res['o25']:.1f}%** |\n| Victoria Local | {p_l:.1f}% |\n| Victoria Visitante | {p_v:.1f}% |")
+            est = f"Doble Oportunidad {fav}" + (" y Over 1.5" if "1.5" in f_tipo else " y Over 2.5" if "2.5" in f_tipo else "")
+            st.markdown(f"""<div style="background-color:#4a4a4a; padding:12px; border-radius:8px; color:white; text-align:center;"><span style="font-size:0.8em;">ESTRATEGIA SUGERIDA:</span><br><b>{est.upper()}</b></div>""", unsafe_allow_html=True)
+    
+        with c2:
+            sum_a, sum_c = res['la'] + res['va'], res['lc_l'] + res['lc_v']
+            rel = sum_a / (sum_c if sum_c > 0 else 0.1)
+            if rel < 1.5: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Inercia baja)", "**Under 2.5/3.5 goles**", "INERCIA BAJA"
+            elif rel < 2.0: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Equilibrio)", "**Over 1.5 / Under 3.5 goles**", "EQUILIBRADO"
+            else: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Saturación)", "**Over 2.5 goles**", "OVER SÓLIDO"
+        
+            st.markdown("### 🎯 Patrón visual clave")
+            st.markdown(f"* Anotados combinados: **{sum_a:.1f}**")
+            st.markdown(f"* Concedidos combinados: **{sum_c:.1f}**")
+            st.markdown(f"* Relación A/C: {txt_ac}")
+            st.markdown(f"* Recomendación táctica: {rec_ac}")
+            st.markdown(f"* Ambas defensas permeables = **{defensas}**")
+
+        st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
+        st.write(f"**λ Total:** {res['lt']:.2f} | **Letra:** {res['letra']}")
+
         st.markdown("---")
-        st.markdown("### 📊 Datos Local")
-        l_a = st.number_input("Anotados Local", value=1.50, key="la_")
-        l_c = st.number_input("Concedidos Local", value=1.00, key="lc_")
-        puesto_l = st.number_input("Puesto tabla local", value=1, min_value=1, key="pl_", disabled=not es_liga)
-        baja_l = st.checkbox("¿Baja sensible Local?", key="bl_")
-        sup_l = st.checkbox("¿Suplentes local >=3?", key="sl_")
-        st.markdown("---")
-        st.markdown("### 📊 Datos Visitante")
-        v_a = st.number_input("Anotados Visitante", value=1.50, key="va_")
-        v_c = st.number_input("Concedidos Visitante", value=1.00, key="vc_")
-        puesto_v = st.number_input("Puesto tabla visitante", value=15, min_value=1, key="pv_", disabled=not es_liga)
-        baja_v = st.checkbox("¿Baja sensible Visitante?", key="bv_")
-        sup_v = st.checkbox("¿Suplentes visita >=3?", key="sv_")
-
-    with tab_calc:
-        # --- DENTRO DEL TAB_CALC (Boton Ejecutar Análisis) ---
-        if st.button("EJECUTAR ANÁLISIS", key="btn_ejec"):
-            # 1. Cálculos de Lambda
-            l_loc_calc = ((l_a + v_c)/2) * (1 - (0.1 if baja_l else 0) - (0.1 if sup_l else 0))
-            l_vis_calc = ((v_a + l_c)/2) * (1 - (0.1 if baja_v else 0) - (0.1 if sup_v else 0))
-            l_total_input = l_loc_calc + l_vis_calc
+        with st.expander("📊 ANALIZADOR DE CUOTAS Y SINCRO", expanded=True):
+            if bloqueado and pico != 2: 
+                st.warning("🚫 Filtro sin patrón claro para análisis de cuotas.")
+            else:
+                cq1, cq2, cq3 = st.columns(3)
+                c_o15 = cq3.number_input("Cuota Over 1.5 Goles", 1.0, 5.0, 1.20, key="qc_o15")
+                if st.button("ANALIZAR SINCRO", key="btn_sinc"):
+                    if rel >= 2.0 and f_tipo == "2.5" and c_o15 <= 1.22: 
+                        st.success("✅ SINCRO ÉXITO: Over 2.5 combinado con over de córners 'X-3'")
+                    else: 
+                        st.info("Evaluar mercado manual.")
     
-            # 2. LLAMADO ÚNICO Y CORRECTO: Enviamos los 3 argumentos requeridos
-            # Usamos 0, 0 para loc y vis porque para goles mandas el l_total_input
-            etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total_input)
+        st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_clr")
+
+with tab_api:
+    c_api1, c_api2 = st.columns(2)
+    with c_api1: 
+        f_input = st.date_input("Selecciona fecha", datetime.now(), key="f_input")
+    with c_api2: 
+        lista_tz = pytz.all_timezones
+        tz_idx = lista_tz.index("America/Caracas") if "America/Caracas" in lista_tz else 0
+        tz_input = st.selectbox("🕒 País Referencia (Hora)", lista_tz, index=tz_idx)
     
-            # 3. Guardado de resultados en la sesión
-            st.session_state.analisis_realizado = True
-            st.session_state.resultados = {
-                "o15": o15_p, 
-                "o25": o25_p, 
-                "lt": lt_final, 
-                "letra": letra, 
-                "ll": l_loc_calc, 
-                "lv": l_vis_calc, 
-                "la": l_a, 
-                "va": v_a, 
-                "lc_l": l_c, 
-                "lc_v": v_c, 
-                "pronostico": etiq
-            }
-            st.success("Análisis completado con éxito.")
-                              
-        # BLOQUE DE VISUALIZACIÓN (Alineado a la izquierda para ejecución inmediata)
-        if st.session_state.analisis_realizado:
-            res = st.session_state.resultados
-            p_val = int(float(res.get("o25", 0)))
-            pico = float(res.get("lt", 0))
+    if st.button("🚀 INICIAR ESCANEO DE JORNADA", key="btn_scan"):
+        with st.spinner("Escaneando e integrando Protocolo Maestro..."): 
+            partidos_encontrados = buscar_partidos_fecha(f_input, tz_input)
+            if partidos_encontrados:
+                procesar_datos_diarios(partidos_encontrados)
+                st.session_state.lista_partidos = partidos_encontrados
+                st.success(f"✅ Se procesaron {len(partidos_encontrados)} partidos con éxito.")
+            else:
+                st.warning("⚠️ No se encontraron partidos para esta fecha.")
 
-            f_msg, f_col, f_tipo, bloqueado = "SIN PATRÓN CLARO", "#4a4a4a", "VACIO", True
-            
-            if p_val in [57, 58, 59, 65, 72, 73]: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 1.5 GOLES", "#00ff00", "1.5", False
-            elif 61 <= p_val <= 64: f_msg, f_col, f_tipo, bloqueado = "VALUE SÓLIDO: 2.5 GOLES", "#00ff00", "2.5", False
-            elif p_val in [70, 71, 74]: f_msg, f_col, f_tipo, bloqueado = "VALUE 1.5 RIESGOSO", "#e74c3c", "RIESGO_15", False
-            elif p_val == 60: f_msg, f_col, f_tipo, bloqueado = "VALUE 2.5 RIESGOSO", "#e74c3c", "RIESGO_25", False
-            
-            # --- TODO ESTO SIGUE DENTRO DEL IF ---
-            if f_tipo in ["1.5", "2.5"]:
-                st.markdown(f'<div class="alerta-cuota">⚠️ VALUE {f_tipo}</div>', unsafe_allow_html=True)
-        
-            c1, c2 = st.columns(2)
-            with c1:
-                p_l, p_v = (res["ll"]/(res["lt"]+0.001))*100, (res["lv"]/(res["lt"]+0.001))*100
-                fav = "Local" if p_l > p_v else "Visitante"
-                st.markdown(f"| Mercado | Probabilidad |\n| :--- | :--- |\n| Over 1.5 | **{res['o15']:.1f}%** |\n| Over 2.5 | **{res['o25']:.1f}%** |\n| Victoria Local | {p_l:.1f}% |\n| Victoria Visitante | {p_v:.1f}% |")
-                est = f"Doble Oportunidad {fav}" + (" y Over 1.5" if "1.5" in f_tipo else " y Over 2.5" if "2.5" in f_tipo else "")
-                st.markdown(f"""<div style="background-color:#4a4a4a; padding:12px; border-radius:8px; color:white; text-align:center;"><span style="font-size:0.8em;">ESTRATEGIA SUGERIDA:</span><br><b>{est.upper()}</b></div>""", unsafe_allow_html=True)
-        
-            with c2:
-                sum_a, sum_c = res['la'] + res['va'], res['lc_l'] + res['lc_v']
-                rel = sum_a / (sum_c if sum_c > 0 else 0.1)
-                # EL IF DE ABAJO AHORA SÍ ESTÁ DENTRO DE C2
-                if rel < 1.5: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Inercia baja)", "**Under 2.5/3.5 goles**", "INERCIA BAJA"
-                elif rel < 2.0: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Equilibrio)", "**Over 1.5 / Under 3.5 goles**", "EQUILIBRADO"
-                else: txt_ac, rec_ac, defensas = f"**{sum_a:.1f}/{sum_c:.1f}** - Relación = **{rel:.2f}** (Saturación)", "**Over 2.5 goles**", "OVER SÓLIDO"
-            
-                st.markdown("### 🎯 Patrón visual clave")
-                st.markdown(f"* Anotados combinados: **{sum_a:.1f}**")
-                st.markdown(f"* Concedidos combinados: **{sum_c:.1f}**")
-                st.markdown(f"* Relación A/C: {txt_ac}")
-                st.markdown(f"* Recomendación táctica: {rec_ac}")
-                st.markdown(f"* Ambas defensas permeables = **{defensas}**")
-
-            # Final del reporte visual
-            st.markdown(f'''<div style="border-left:5px solid {f_col}; background-color:#1e1e1e; padding:15px; font-weight:bold; color:white; border-radius:0 8px 8px 0;">FILTRO: {f_msg}</div>''', unsafe_allow_html=True)
-            st.write(f"**λ Total:** {res['lt']:.2f} | **Letra:** {res['letra']}")
-
-            # El separador y los botones finales también DENTRO del IF principal
-            st.markdown("---")
-            with st.expander("📊 ANALIZADOR DE CUOTAS Y SINCRO", expanded=True):
-                if bloqueado and pico != 2: 
-                    st.warning("🚫 Filtro sin patrón claro para análisis de cuotas.")
-                else:
-                    cq1, cq2, cq3 = st.columns(3)
-                    c_o15 = cq3.number_input("Cuota Over 1.5 Goles", 1.0, 5.0, 1.20, key="qc_o15")
-                    if st.button("ANALIZAR SINCRO", key="btn_sinc"):
-                        if rel >= 2.0 and f_tipo == "2.5" and c_o15 <= 1.22: 
-                            st.success("✅ SINCRO ÉXITO: Over 2.5 combinado con over de córners 'X-3'")
-                        else: 
-                            st.info("Evaluar mercado manual.")
-        
-            st.button("LIMPIAR ANÁLISIS", on_click=limpiar_pantalla, type="primary", key="btn_clr")
-        with tab_api:
-            c_api1, c_api2 = st.columns(2)
-            with c_api1: 
-                f_input = st.date_input("Selecciona fecha", datetime.now(), key="f_input")
-            with c_api2: 
-                lista_tz = pytz.all_timezones
-                tz_idx = lista_tz.index("America/Caracas") if "America/Caracas" in lista_tz else 0
-                tz_input = st.selectbox("🕒 País Referencia (Hora)", lista_tz, index=tz_idx)
-        
-            if st.button("🚀 INICIAR ESCANEO DE JORNADA", key="btn_scan"):
-        
-                with st.spinner("Escaneando e integrando Protocolo Maestro..."): 
-        
-                    partidos_encontrados = buscar_partidos_fecha(f_input, tz_input)
-        
-                    if partidos_encontrados:
-            # Sección 2: Procesamiento de Lambda Real y Colores
-            # Aquí se aplica (fh + ah + fv + av) / 2
-                        secciones_listas = procesar_datos_diarios(partidos_encontrados)
-            
-            # Sección 3: Guardar en el estado
-                        st.session_state.lista_partidos = partidos_encontrados
-                        st.success(f"✅ Se procesaron {len(partidos_encontrados)} partidos con éxito.")
-                    else:
-                        st.warning("⚠️ No se encontraron partidos para esta fecha.")
-
-    # --- VALIDACIÓN DE SEGURIDAD---
+    # --- TODO ESTE BLOQUE AHORA ESTÁ DENTRO DE tab_api ---
     if 'lista_partidos' in st.session_state and st.session_state.lista_partidos:
-        
-        # 2. Ajuste Dinámico de Categoría (Persistencia en memoria_ligas)
+        st.markdown("---")
         with st.expander("🛠️ AJUSTE DINÁMICO DE CATEGORÍA"):
             ligas_presentes = sorted(list(set([p['liga'] for p in st.session_state.lista_partidos])))
             ca1, ca2, ca3 = st.columns([2, 1, 1])
@@ -730,23 +717,19 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
             n_sel = ca2.selectbox("Nuevo Nivel", list(NIVELES_CONFIG.values()))
             if ca3.button("GUARDAR CAMBIO"):
                 st.session_state.memoria_ligas[l_sel] = n_sel
-                # Actualizamos solo el diccionario de ligas en la memoria física
                 mem_actual = cargar_memoria_bot()
                 mem_actual['memoria_ligas'] = st.session_state.memoria_ligas
                 guardar_memoria_bot(mem_actual)
                 st.success(f"Nivel de liga guardado permanentemente.")
                 st.rerun()
 
-        st.markdown("---")
         st.markdown("### 🔍 FILTRADO POR NIVEL MAESTRO")
         col_f1, col_f2 = st.columns([2, 1])
-        
         with col_f1: 
             nivel_busqueda = st.selectbox("AJUSTE ESCANEO NIVEL DE FÚTBOL", list(NIVELES_CONFIG.keys()), key="sel_nivel_esp")
         with col_f2: 
             btn_esp = st.button("🎯 INICIAR ESCANEO ESPECÍFICO")
         
-        # 3. Lógica de Previsualización y Filtrado
         color_objetivo = NIVELES_CONFIG[nivel_busqueda]
         if btn_esp:
             filtrados = [p for p in st.session_state.lista_partidos if p['color'] == color_objetivo]
@@ -756,45 +739,36 @@ if not os.getenv("GITHUB_ACTIONS") == "true":
             st.info(f"Mostrando {len(filtrados)} partidos totales (Sin filtrar).")
 
         for p in filtrados:
-    # 1. Extraemos el Lambda Real primero (Limpieza)
-    # Usamos .get() para evitar errores si el dato no existe
             lambda_val = p.get('lambda_total', 0)
-    
-    # 2. Ahora la línea de st.write es más corta y segura
             st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']} | **λ:** {lambda_val:.2f}")
 
-        # --- BLOQUE FINAL (ESTADO Y RESET SEGURO) ---
-    st.markdown("---")
-    with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
-        mem = cargar_memoria_bot()
-        st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
+# --- BLOQUE FINAL (FUERA DE TABS) ---
+st.markdown("---")
+with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
+    mem = cargar_memoria_bot()
+    st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
 
-    # RESET INTELIGENTE: NO BORRA LAS LIGAS INTEGRADAS
-    if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
-        mem_actual = cargar_memoria_bot()
-    # Definimos la nueva estructura para que APRENDA del fallo
-        nueva_memoria = {
-            "ultimo_lote": 0, 
-            "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
-            "enviados": [], 
-            "acertados": 0, 
-            "fallados": 0, 
-            "patrones_aprendizaje": mem_actual.get('patrones_aprendizaje', {
-                "inercia_baja_falla": 0,
-                "saturacion_techo_exito": 0,
-                "analisis_fallos_ligas": {}, # CAMBIADO: Para estudiar el error
-                "historial_ajuste_lambda": [] 
-            }),
-            "reporte_enviado": False,
-            "memoria_ligas": mem_actual.get('memoria_ligas', {}) # Mantiene la base de datos
+if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
+    mem_actual = cargar_memoria_bot()
+    nueva_memoria = {
+        "ultimo_lote": 0, 
+        "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
+        "enviados": [], 
+        "acertados": 0, 
+        "fallados": 0, 
+        "patrones_aprendizaje": mem_actual.get('patrones_aprendizaje', {
+            "inercia_baja_falla": 0,
+            "saturacion_techo_exito": 0,
+            "analisis_fallos_ligas": {}, 
+            "historial_ajuste_lambda": [] 
+        }),
+        "reporte_enviado": False,
+        "memoria_ligas": mem_actual.get('memoria_ligas', {}) # Mantiene el conocimiento de ligas
     }
-    
-        guardar_memoria_bot(nueva_memoria)
-        st.success("✅ Reset completado. El bot mantiene el historial de fallos para ajustar el Protocolo.")
-        st.rerun()
+    guardar_memoria_bot(nueva_memoria)
+    st.success("✅ Reset completado. Se mantiene historial de fallos.")
+    st.rerun()
 
-# --- EJECUCIÓN AUTOMÁTICA GITHUB ---
 if __name__ == "__main__":
     if os.getenv("GITHUB_ACTIONS") == "true": 
         ejecutar_analisis_automatico()
-      
