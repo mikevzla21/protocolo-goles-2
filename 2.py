@@ -369,7 +369,6 @@ def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
     with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
 
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
-    # CORRECCIÓN: Maneja string (GitHub) u objeto (Streamlit)
     if isinstance(fecha_obj, str):
         f_str = fecha_obj
     else:
@@ -379,7 +378,8 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
     params = {"date": f_str}
     
-    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Bulgaria", "Poland", "Romania", "Turkey", "Australia"]
+    # Lista ampliada para asegurar que encuentre partidos
+    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Turkey", "Australia", "Chile", "Ecuador", "Peru"]
     
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -390,14 +390,14 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
             tz_local = pytz.timezone(zona_horaria)
             
             for ev in eventos:
-                liga_nombre = ev.get('league', {}).get('name', 'Desconocida')
-                pais_nombre = ev.get('league', {}).get('country', 'Internacional')
+                liga_n = ev.get('league', {}).get('name', 'Desconocida')
+                pais_n = ev.get('league', {}).get('country', 'Internacional')
                 h, a = ev.get('teams', {}).get('home', {}).get('name', 'Local'), ev.get('teams', {}).get('away', {}).get('name', 'Visita')
                 
-                nivel_actual = asignar_color_nivel(liga_nombre, pais_nombre, h, a)
+                nivel_actual = asignar_color_nivel(liga_n, pais_n, h, a)
                 
-                # AHORA INCLUYE NARANJA: Para que no te oculte partidos "mentirosamente"
-                if nivel_actual in ["🟢", "🟡", "🔵", "⚪", "🟠"] or pais_nombre in PAISES_TOP:
+                # FILTRO RELAJADO: Si es país top O tiene color asignado (incluyendo naranja), pasa.
+                if nivel_actual in ["🟢", "🟡", "🔵", "⚪", "🟠"] or pais_n in PAISES_TOP:
                     status_short = ev.get('fixture', {}).get('status', {}).get('short')
                     if status_short in ['FT', 'AET', 'PEN']: continue
                     
@@ -410,8 +410,7 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
                         "a_id": ev.get('teams', {}).get('away', {}).get('id'), 
                         "l_id": ev.get('league', {}).get('id'), 
                         "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
-                        "ts": ts, "liga": liga_nombre, "pais": pais_nombre, "h": h, "a": a, 
-                        "desc": ev.get('fixture', {}).get('status', {}).get('long', 'Disponible'), 
+                        "ts": ts, "liga": liga_n, "pais": pais_n, "h": h, "a": a, 
                         "hora": hora_str, "color": nivel_actual
                     })
             
