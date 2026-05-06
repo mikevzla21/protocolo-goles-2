@@ -424,10 +424,11 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     memoria = cargar_memoria_bot()
     ahora = datetime.now(pytz.timezone(tz_ref))
     
+    # Sincronización de fecha para evitar duplicados diarios
     if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
         memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
     
-    # Filtrar solo los que no se han enviado hoy
+    # Filtrar solo los nuevos
     partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
     
     if not partidos_para_enviar:
@@ -436,35 +437,36 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
     lista_para_reporte = [] 
 
     for p in partidos_para_enviar:
-        # 1. Obtención de estadísticas reales de goles
+        # 1. Obtención de estadísticas reales
         fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
         fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
         
-        # Aplicando Protocolo Maestro: (Suma de los 4 factores) / 2
+        # PROTC_MAESTRO: l_total es la media de los 4 factores
         l_total = (fh + ah + fv + av) / 2
         
-        # Mantenemos l_loc y l_vis solo para el cálculo de victoria (opcional)
-        l_loc, l_vis = (fh + av) / 2, (fv + ah) / 2
+        # l_loc y l_vis según el Manual del Protocolo
+        l_loc = (fh + av) / 2
+        l_vis = (fv + ah) / 2
     
-        # 2. Motor Lógico (Goles)
-        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(0, 0, l_total)
+        # 2. Motor Lógico - PASAMOS LOS VALORES REALES, NO CEROS
+        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
         
-        # 3. Preparación de datos para el reporte organizado
+        # 3. Preparación de datos
         p['letra'] = letra
         p['p_val'] = round(o25_p)
         p['etiq_reporte'] = etiq 
         
         lista_para_reporte.append(p)
 
-        # 4. Registro ADN
+        # 4. Registro ADN (Para tu aprendizaje del bot)
         registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt_final, l_loc, l_vis, round(o25_p))
         
         # Marcar como enviado
         memoria["enviados"].append(p['id'])
 
-    # 5. CLASIFICACIÓN POR NIVELES Y ENVÍO UNIFICADO
+    # 5. CLASIFICACIÓN Y ENVÍO
     if lista_para_reporte:
-        # Definición de tus 5 Niveles
+        # Tus 5 Niveles establecidos
         categorias_config = {
             "🟢 NIVEL 1": "Primera División",
             "🟡 NIVEL 2": "Segunda y Tercera División",
@@ -473,31 +475,27 @@ def enviar_lote_automatico(partidos_detectados, tz_ref):
             "⚪ NIVEL 5": "Femenil, Amateur, U23 o menos"
         }
         
-        # Agrupar
         agrupados = {cat: [] for cat in categorias_config.keys()}
         for p in lista_para_reporte:
-            color = p.get('color', '⚪ NIVEL 5') # Usa el color asignado en el escaneo
-            if color in agrupados:
-                agrupados[color].append(p)
+            # Buscamos el color que asignamos en el escaneo (ej: "🟢 NIVEL 1")
+            color_asignado = p.get('color', '⚪ NIVEL 5')
+            if color_asignado in agrupados:
+                agrupados[color_asignado].append(p)
 
-        # Construcción del Mensaje para Telegram
+        # Mensaje Unificado
         mensaje_final = f"⚽ **REPORTE CENTINELA GOLES - {ahora.strftime('%d/%m/%Y %H:%M')}**\n"
         mensaje_final += "------------------------------------------\n"
 
         for cat, nombre_nivel in categorias_config.items():
-            mensaje_final += f"\n**{cat} ({nombre_nivel}):**\n"
-            
             partidos_cat = agrupados[cat]
-            if not partidos_cat:
-                mensaje_final += "_No hay partidos escaneados de esta categoría durante este horario._\n"
-            else:
+            if partidos_cat:
+                mensaje_final += f"\n**{cat}:**\n"
                 for p in partidos_cat:
-                    # Incluimos el indicador (Letra) y la Probabilidad de tu Protocolo
+                    # Formato: Hora | Equipos | Letra | % Over 2.5
                     mensaje_final += f"• 🕒 {p['hora']} | {p['h']} vs {p['a']} | **{p['letra']}** ({p['p_val']}%)\n"
-            
-            mensaje_final += "------------------------------------------\n"
+                mensaje_final += "------------------------------------------\n"
 
-        # Envío único a Telegram
+        # Envío final
         enviar_telegram(mensaje_final)
         guardar_memoria_bot(memoria)
 
