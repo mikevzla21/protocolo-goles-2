@@ -5,6 +5,7 @@ import pytz
 import json
 import os
 import telebot
+import streamlit as st 
 
 def cargar_memoria_bot():
     if os.path.exists("memoria_centinela.json"):
@@ -19,6 +20,18 @@ def guardar_memoria_bot(datos):
 def limpiar_pantalla():
     st.session_state.analisis_realizado = False
     st.session_state.resultados = {}
+
+def ejecutar_analisis_automatico():
+    """Esta función es el motor que despierta al bot en GitHub Actions"""
+    tz_name = "America/Caracas"
+    # 1. Busca los partidos brutos del día
+    partidos_del_dia = buscar_partidos_fecha(datetime.now(), tz_name)
+    
+    if partidos_del_dia:
+        # 2. Los procesa, filtra por valor y envía a Telegram
+        procesar_escaneo_api_automatico(partidos_del_dia)
+    else:
+        print("No hay partidos para procesar hoy.")    
 
 # =====================================================
 # BLOQUE 1: DICCIONARIO DE PATRONES MAESTROS
@@ -78,6 +91,72 @@ if os.getenv("GITHUB_ACTIONS") != "true":
     if 'analisis_realizado' not in st.session_state:
         st.session_state.analisis_realizado = False
     
+def procesar_escaneo_api_automatico(partidos_api):
+    """
+    1. Busca estadísticas de goles.
+    2. Filtra por Protocolo Maestro (Solo Value/Riesgoso).
+    3. Respeta cupos de 10 por nivel.
+    4. ENVÍA EL REPORTE FINAL A TELEGRAM.
+    """
+    cupos = {
+        "🟢 NIVEL 1": 0, "🟡 NIVEL 2": 0, "🟠 NIVEL 3": 0, 
+        "🔵 NIVEL 4": 0, "⚪ NIVEL 5": 0
+    }
+    
+    partidos_validados = []
+
+    for p in partidos_api:
+        nivel_p = p.get('color', '⚪ NIVEL 5')
+        
+        if cupos.get(nivel_p, 0) >= 10:
+            continue
+        
+        # Obtención de estadísticas reales desde la API
+        fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+        fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+        
+        # Aritmética del Protocolo Maestro
+        l_loc = fh + av
+        l_vis = fv + ah
+        l_total = (fh + av + fv + ah) / 2
+        
+        # Validación de Valor
+        etiq, es_value, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
+        
+        if es_value:
+            p.update({
+                'letra': letra,
+                'p_val': round(o25_p),
+                'etiq_reporte': etiq,
+                'l_total': l_total
+            })
+            partidos_validados.append(p)
+            cupos[nivel_p] += 1
+            
+            # (Opcional) Registro para el aprendizaje del bot
+            registrar_adn_partido(p['h'], p['a'], p['liga'], letra, l_total, l_loc, l_vis, round(o25_p))
+
+    # --- AQUÍ SE INTEGRA EL ENVÍO ---
+    if partidos_validados:
+        # Creamos el mensaje con el estilo que ya conoces
+        ahora_vlc = datetime.now(pytz.timezone("America/Caracas")).strftime('%d/%m/%Y %H:%M')
+        mensaje_final = f"⚽ **REPORTE CENTINELA - {ahora_vlc}**\n"
+        mensaje_final += "------------------------------------------\n"
+
+        # Agrupamos por niveles para el mensaje
+        for nivel in cupos.keys():
+            partidos_nivel = [part for part in partidos_validados if part['color'] == nivel]
+            if partidos_nivel:
+                mensaje_final += f"\n**{nivel}:**\n"
+                for pn in partidos_nivel:
+                    mensaje_final += f"• 🕒 {pn['hora']} | {pn['h']} vs {pn['a']} | **{pn['letra']}** ({pn['p_val']}%)\n"
+                mensaje_final += "------------------------------------------\n"
+
+        # Enviamos el mensaje construido al CHAT_ID del canal
+        bot.send_message(CHAT_ID_CANAL, mensaje_final, parse_mode="Markdown")
+    else:
+        print("Escaneo finalizado: No se encontraron oportunidades que cumplan el protocolo.")
+
 # --- BLOQUE DE MEMORIA EVOLUTIVO (CON APRENDIZAJE) ---
 def cargar_memoria_bot():
     mem_base = {
@@ -128,17 +207,7 @@ def guardar_memoria_bot(datos):
     with open("memoria_bot.json", "w") as f:
         json.dump(datos, f)
 
-def procesar_datos_diarios(lista_partidos):
-    # SECCIÓN 1: Cálculo del Lambda Real
-    for p in lista_partidos:
-        # Aseguramos valores numéricos para evitar errores en el cálculo
-        fh = float(p.get('goles_favor_local', 0))
-        ah = float(p.get('goles_contra_local', 0))
-        fv = float(p.get('goles_favor_visitante', 0))
-        av = float(p.get('goles_contra_visitante', 0))
-        
-        # Protocolo Maestro: Lambda Total
-        p['lambda_total'] = (fh + ah + fv + av) / 2
+
 
 def registrar_aprendizaje(resultado, datos_partido):
     mem = cargar_memoria_bot()
@@ -155,81 +224,87 @@ def registrar_aprendizaje(resultado, datos_partido):
 memoria_temp = cargar_memoria_bot()
 
 def enviar_reporte_diario_patrones():
+    """
+    Reporte de efectividad exclusivo para GOLES.
+    Analiza si las Letras (A, B, C...) están cumpliendo su % de Over 2.5.
+    """
     venezuela_tz = pytz.timezone("America/Caracas")
     ahora = datetime.now(venezuela_tz)
     mem = cargar_memoria_bot()
     
-    # Usamos la misma hora que el activador
     if ahora.hour == 2 and not mem.get("reporte_patrones_enviado", False):
-        partidos_crudos = st.session_state.get('lista_partidos', [])
+        import os, json
+        archivo_adn = "registro_aprendizaje.json"
         
-        if partidos_crudos:
-            resultados_listos = procesar_datos_diarios(partidos_crudos)
-            enviar_reporte_maestro_organizado(resultados_listos)    
+        # 1. Enviamos el resumen visual de los partidos escaneados
+        if os.path.exists(archivo_adn):
+            with open(archivo_adn, 'r') as f:
+                partidos_registrados = json.load(f)
+            if partidos_registrados:
+                enviar_reporte_maestro_organizado(partidos_registrados)    
         
-        # Alineación corregida: 4 espacios desde el inicio del IF
-        msg = "🧠 **REPORTE DIARIO DE APRENDIZAJE**\n\n"
-        msg += f"✅ Acertados: {mem['acertados']} | ❌ Fallados: {mem['fallados']}\n\n"
-        msg += "📈 **Patrones Detectados:**\n"
+        # 2. Construcción del mensaje de aprendizaje técnico (SOLO GOLES)
+        msg = "🧠 **REPORTE DIARIO DE APRENDIZAJE (GOLES)**\n"
+        msg += "------------------------------------------\n"
+        msg += f"✅ Over 2.5 Acertados: {mem.get('acertados', 0)}\n"
+        msg += f"❌ Over 2.5 Fallados: {mem.get('fallados', 0)}\n\n"
         
-        if mem["patrones_aprendizaje"]["inercia_baja_falla"] > 2:
-            msg += "⚠️ *Alerta:* Inercia Baja fallando. Asegurar con Búnker.\n"
+        # 3. Lógica de detección de errores en Predicción de Goles
+        p_apr = mem.get("patrones_aprendizaje", {})
+        msg += "📈 **Análisis de Eficacia:**\n"
+        
+        # Error tipo 1: El patrón decía Value pero el partido fue muy cerrado
+        if p_apr.get("exceso_expectativa_falla", 0) > 2:
+            msg += "⚠️ *Detección:* Letras de alto valor (N, Q, I) están fallando por falta de ritmo real.\n"
             
+        # Error tipo 2: Discrepancia entre local/visitante
+        if p_apr.get("inercia_baja_falla", 0) > 2:
+            msg += "⚠️ *Detección:* Partidos con un solo equipo dominante están rompiendo el Over.\n"
+
         bot.send_message(CHAT_ID_CANAL, msg, parse_mode="Markdown")
         
-        # Guardamos con una llave única para este reporte
+        # Guardar y resetear banderas
         mem["reporte_patrones_enviado"] = True
         guardar_memoria_bot(mem)
 
 def enviar_reporte_maestro_organizado(lista_partidos):
-    # 1. Ajuste de hora local para Venezuela (UTC-4)
+    """
+    Toma los partidos analizados y los organiza por niveles 
+    para mostrar qué se escaneó durante la jornada.
+    """
     venezuela_tz = pytz.timezone("America/Caracas")
     ahora = datetime.now(venezuela_tz)
     hora_actual = ahora.strftime("%H:%M")
 
-    if not lista_partidos:
-        print(f"[{hora_actual}] Escaneo finalizado: Sin oportunidades.")
-        return 
-
-    # 2. PROCESAMIENTO: Calculamos Lambda y validamos datos antes de clasificar
-    # Esto asegura que p.get('lambda_total') y p.get('color') existan
-    lista_procesada = procesar_datos_diarios(lista_partidos)
-    
-    # Encabezado con tu estilo original
-    mensaje = f"🔍 **Escaneo de partidos**\n🕒 **Hora:** {hora_actual}\n"
+    # Encabezado
+    mensaje = f"🔍 **RESUMEN DE JORNADA**\n🕒 **Cierre:** {hora_actual}\n"
     mensaje += "—" * 20 + "\n\n"
 
-    # 3. Secciones por colores (Tu estructura esencial)
+    # Clasificación visual (usando los datos guardados en el registro)
     secciones = {
-        "VERDE": {"emoji": "🟢", "partidos": []},
-        "AMARILLO": {"emoji": "🟡", "partidos": []},
-        "NARANJA": {"emoji": "🟠", "partidos": []},
-        "AZUL": {"emoji": "🔵", "partidos": []},
-        "BLANCO": {"emoji": "⚪", "partidos": []}
+        "🟢": [], "🟡": [], "🟠": [], "🔵": [], "⚪": []
     }
 
-    # 4. Clasificación usando la lista ya procesada
-    for p in lista_procesada:
-        color_asignado = p.get('color', 'BLANCO').upper()
-        if color_asignado in secciones:
-            secciones[color_asignado]["partidos"].append(p)
+    for p in lista_partidos:
+        # Buscamos el color/emoji en el registro o por defecto blanco
+        color = p.get('color', '⚪') 
+        if color in secciones:
+            secciones[color].append(p)
 
-    # 5. Construcción visual reintegrando el Lambda Real (Goles)
-    for nombre, data in secciones.items():
-        if data["partidos"]:
-            mensaje += f"{data['emoji']} **DIVISIÓN {nombre}** {data['emoji']}\n"
-            for p in data["partidos"]:
-                # Extraemos Lambda para el reporte de goles
-                lambda_val = p.get('lambda_total', 0)
-                
-                mensaje += f"📍 `{p.get('h')} vs {p.get('a')}`\n"
-                # Añadimos λ Real junto a tus datos de Letra y Valor
-                mensaje += f"📊 λ Real: {lambda_val:.2f} | Letra: {p.get('letra', '?')} | Val: {p.get('p_val', 0)}%\n"
+    # Construcción del cuerpo del mensaje
+    hay_contenido = False
+    for emoji, partidos in secciones.items():
+        if partidos:
+            hay_contenido = True
+            mensaje += f"{emoji} **NIVEL {emoji}**\n"
+            for p in partidos:
+                mensaje += f"📍 `{p.get('partido')}`\n"
+                mensaje += f"📊 λ: {p.get('l_total', 0):.2f} | Letra: {p.get('letra', '?')} | Val: {p.get('p_val', 0)}%\n"
                 mensaje += "—" * 12 + "\n"
             mensaje += "\n"
 
-    # Envío a Telegram
-    bot.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
+    if hay_contenido:
+        bot.send_message(CHAT_ID_CANAL, mensaje, parse_mode="Markdown")
 
 # --- BUSCADOR DE DATOS REALES (API) ---
 def obtener_stats_maestras(team_id, league_id):
@@ -369,6 +444,10 @@ def registrar_adn_partido(h, a, liga, letra, l_total, l_h, l_a, p_val):
     with open(archivo, 'w') as f: json.dump(historial, f, indent=4)
 
 def buscar_partidos_fecha(fecha_obj, zona_horaria):
+    """
+    Busca todos los partidos de la fecha sin restricciones de país, 
+    permitiendo que el filtro de valor sea el que decida qué se envía.
+    """
     if isinstance(fecha_obj, str):
         f_str = fecha_obj
     else:
@@ -377,9 +456,6 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
     url = "https://v3.football.api-sports.io/fixtures"
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
     params = {"date": f_str}
-    
-    # Lista ampliada para asegurar que encuentre partidos
-    PAISES_TOP = ["Spain", "England", "Germany", "Italy", "France", "Netherlands", "Brazil", "Argentina", "Mexico", "USA", "Portugal", "Venezuela", "Colombia", "Saudi Arabia", "Belgium", "Turkey", "Australia", "Chile", "Ecuador", "Peru"]
     
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -392,112 +468,46 @@ def buscar_partidos_fecha(fecha_obj, zona_horaria):
             for ev in eventos:
                 liga_n = ev.get('league', {}).get('name', 'Desconocida')
                 pais_n = ev.get('league', {}).get('country', 'Internacional')
-                h, a = ev.get('teams', {}).get('home', {}).get('name', 'Local'), ev.get('teams', {}).get('away', {}).get('name', 'Visita')
+                h = ev.get('teams', {}).get('home', {}).get('name', 'Local')
+                a = ev.get('teams', {}).get('away', {}).get('name', 'Visita')
                 
+                # Asignamos nivel/color (Fundamental para el cupo de 10)
                 nivel_actual = asignar_color_nivel(liga_n, pais_n, h, a)
                 
-                # FILTRO RELAJADO: Si es país top O tiene color asignado (incluyendo naranja), pasa.
-                if nivel_actual in ["🟢", "🟡", "🔵", "⚪", "🟠"] or pais_n in PAISES_TOP:
-                    status_short = ev.get('fixture', {}).get('status', {}).get('short')
-                    if status_short in ['FT', 'AET', 'PEN']: continue
-                    
-                    ts = ev.get('fixture', {}).get('timestamp', 0)
-                    hora_str = datetime.fromtimestamp(ts, pytz.utc).astimezone(tz_local).strftime("%H:%M")
-                    
-                    lista_final.append({
-                        "id": ev.get('fixture', {}).get('id'), 
-                        "h_id": ev.get('teams', {}).get('home', {}).get('id'), 
-                        "a_id": ev.get('teams', {}).get('away', {}).get('id'), 
-                        "l_id": ev.get('league', {}).get('id'), 
-                        "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
-                        "ts": ts, "liga": liga_n, "pais": pais_n, "h": h, "a": a, 
-                        "hora": hora_str, "color": nivel_actual
-                    })
+                # ELIMINADO FILTRO DE PAISES_TOP: 
+                # Ahora pasan todos los partidos que no hayan finalizado
+                status_short = ev.get('fixture', {}).get('status', {}).get('short')
+                if status_short in ['FT', 'AET', 'PEN']: 
+                    continue
+                
+                ts = ev.get('fixture', {}).get('timestamp', 0)
+                hora_str = datetime.fromtimestamp(ts, pytz.utc).astimezone(tz_local).strftime("%H:%M")
+                
+                lista_final.append({
+                    "id": ev.get('fixture', {}).get('id'), 
+                    "h_id": ev.get('teams', {}).get('home', {}).get('id'), 
+                    "a_id": ev.get('teams', {}).get('away', {}).get('id'), 
+                    "l_id": ev.get('league', {}).get('id'), 
+                    "live": (status_short in ['1H', 'HT', '2H', 'ET', 'P']), 
+                    "ts": ts, 
+                    "liga": liga_n, 
+                    "pais": pais_n, 
+                    "h": h, 
+                    "a": a, 
+                    "hora": hora_str, 
+                    "color": nivel_actual
+                })
             
+            # Ordenamos para priorizar en vivo y niveles profesionales en el loop
             lista_final.sort(key=lambda x: (not x['live'], x['color'] != "🟢", x['ts']))
             return lista_final
+            
         return []
-    except: return []
+    except Exception as e: 
+        print(f"Error en buscar_partidos_fecha: {e}")
+        return []
     
 # --- CEREBRO CON LOGICA DE VALUE Y EFICACIA (FILTRO DE ENVÍO ACTUALIZADO) ---
-def enviar_lote_automatico(partidos_detectados, tz_ref):
-    memoria = cargar_memoria_bot()
-    ahora = datetime.now(pytz.timezone(tz_ref))
-    
-    # Sincronización de fecha para evitar duplicados diarios
-    if memoria["fecha_actual"] != ahora.strftime("%Y-%m-%d"):
-        memoria.update({"ultimo_lote": 0, "fecha_actual": ahora.strftime("%Y-%m-%d"), "enviados": []})
-    
-    # Filtrar solo los nuevos
-    partidos_para_enviar = [p for p in partidos_detectados if p['id'] not in memoria["enviados"]]
-    
-    if not partidos_para_enviar:
-        return
-
-    lista_para_reporte = [] 
-
-    for p in partidos_para_enviar:
-        # 1. Obtención de estadísticas reales
-        fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
-        fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
-        
-        # PROTC_MAESTRO: l_total es la media de los 4 factores
-        l_total = (fh + ah + fv + av) / 2
-        
-        # l_loc y l_vis según el Manual del Protocolo
-        l_loc = (fh + av) / 2
-        l_vis = (fv + ah) / 2
-    
-        # 2. Motor Lógico - PASAMOS LOS VALORES REALES, NO CEROS
-        etiq, es_val, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
-        
-        # 3. Preparación de datos
-        p['letra'] = letra
-        p['p_val'] = round(o25_p)
-        p['etiq_reporte'] = etiq 
-        
-        lista_para_reporte.append(p)
-
-        # 4. Registro ADN (Para tu aprendizaje del bot)
-        registrar_adn_partido(p.get('h'), p.get('a'), p.get('liga'), letra, lt_final, l_loc, l_vis, round(o25_p))
-        
-        # Marcar como enviado
-        memoria["enviados"].append(p['id'])
-
-    # 5. CLASIFICACIÓN Y ENVÍO
-    if lista_para_reporte:
-        # Tus 5 Niveles establecidos
-        categorias_config = {
-            "🟢 NIVEL 1": "Primera División",
-            "🟡 NIVEL 2": "Segunda y Tercera División",
-            "🟠 NIVEL 3": "Cuarta División o más",
-            "🔵 NIVEL 4": "Copas o Torneos",
-            "⚪ NIVEL 5": "Femenil, Amateur, U23 o menos"
-        }
-        
-        agrupados = {cat: [] for cat in categorias_config.keys()}
-        for p in lista_para_reporte:
-            # Buscamos el color que asignamos en el escaneo (ej: "🟢 NIVEL 1")
-            color_asignado = p.get('color', '⚪ NIVEL 5')
-            if color_asignado in agrupados:
-                agrupados[color_asignado].append(p)
-
-        # Mensaje Unificado
-        mensaje_final = f"⚽ **REPORTE CENTINELA GOLES - {ahora.strftime('%d/%m/%Y %H:%M')}**\n"
-        mensaje_final += "------------------------------------------\n"
-
-        for cat, nombre_nivel in categorias_config.items():
-            partidos_cat = agrupados[cat]
-            if partidos_cat:
-                mensaje_final += f"\n**{cat}:**\n"
-                for p in partidos_cat:
-                    # Formato: Hora | Equipos | Letra | % Over 2.5
-                    mensaje_final += f"• 🕒 {p['hora']} | {p['h']} vs {p['a']} | **{p['letra']}** ({p['p_val']}%)\n"
-                mensaje_final += "------------------------------------------\n"
-
-        # Envío final
-        enviar_telegram(mensaje_final)
-        guardar_memoria_bot(memoria)
 
 def generar_reporte_discrepancias():
     import os, json
@@ -523,8 +533,9 @@ venezuela_tz = pytz.timezone("America/Caracas")
 ahora = datetime.now(venezuela_tz)
 mem = cargar_memoria_bot()
 
+# Centralizamos el mantenimiento a las 2:00 AM
 if ahora.hour == 2:
-    # Sub-bloque 1: Discrepancias
+    # Sub-bloque 1: Discrepancias (Anotados vs Concedidos inusuales)
     if not mem.get("reporte_discrepancias_enviado", False):
         try:
             rep = generar_reporte_discrepancias()
@@ -533,35 +544,83 @@ if ahora.hour == 2:
                 mem["reporte_discrepancias_enviado"] = True 
                 guardar_memoria_bot(mem)
         except Exception as e:
-            print(f"Error reporte: {e}")
+            print(f"Error en reporte de discrepancias: {e}")
 
-    # Sub-bloque 2: Llamada a la función de patrones
+    # Sub-bloque 2: Reporte de aprendizaje (Efectividad del Protocolo)
+    # Nota: Esta función debe usar datos de la memoria física, no de st.session_state
     enviar_reporte_diario_patrones()
 
-# 2. Reset del flag (Se puede hacer al inicio de la jornada o a una hora muerta)
+# Reset de banderas para el nuevo día a las 4:00 AM
 if ahora.hour == 4: 
-    mem["reporte_enviado_hoy"] = False
+    mem["reporte_discrepancias_enviado"] = False
+    mem["reporte_patrones_enviado"] = False
     guardar_memoria_bot(mem)
 
-# --- REPARACIÓN DEL DESPACHO ---
-def ejecutar_analisis_automatico():
-    tz_name = "America/Caracas"
-    tz = pytz.timezone(tz_name)
-    # Obtenemos la fecha actual en Venezuela
-    fecha_hoy = datetime.now(tz)
-    fecha_api = fecha_hoy.strftime("%Y-%m-%d")
+def procesar_escaneo_api_automatico(partidos_api):
+    """
+    1. Busca estadísticas de goles.
+    2. Filtra por Protocolo Maestro (Solo Value/Riesgoso).
+    3. Respeta cupos de 10 por nivel.
+    4. ENVÍA EL REPORTE FINAL A TELEGRAM.
+    """
+    cupos = {
+        "🟢 NIVEL 1": 0, "🟡 NIVEL 2": 0, "🟠 NIVEL 3": 0, 
+        "🔵 NIVEL 4": 0, "⚪ NIVEL 5": 0
+    }
     
-    # Reporte de diagnóstico para Telegram
-    bot.send_message(CHAT_ID_CANAL, f"🤖 Escaneo iniciado para la fecha: {fecha_api}")
-    
-    # Enviamos el string limpio a la función corregida
-    partidos = buscar_partidos_fecha(fecha_api, tz_name)
-    
-    if partidos and len(partidos) > 0:
-        # Aquí procesará el Lambda Total y la Letra del Patrón Maestro
-        enviar_lote_automatico(partidos, tz_name) 
+    partidos_validados = []
+
+    for p in partidos_api:
+        nivel_p = p.get('color', '⚪ NIVEL 5')
+        
+        if cupos.get(nivel_p, 0) >= 10:
+            continue
+        
+        # Obtención de estadísticas reales desde la API
+        fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+        fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
+        
+        # Aritmética del Protocolo Maestro
+        l_loc = fh + av
+        l_vis = fv + ah
+        l_total = (fh + av + fv + ah) / 2
+        
+        # Validación de Valor
+        etiq, es_value, letra, o15_p, o25_p, lt_final = motor_logico_maestro(l_loc, l_vis, l_total)
+        
+        if es_value:
+            p.update({
+                'letra': letra,
+                'p_val': round(o25_p),
+                'etiq_reporte': etiq,
+                'l_total': l_total
+            })
+            partidos_validados.append(p)
+            cupos[nivel_p] += 1
+            
+            # (Opcional) Registro para el aprendizaje del bot
+            registrar_adn_partido(p['h'], p['a'], p['liga'], letra, l_total, l_loc, l_vis, round(o25_p))
+
+    # --- AQUÍ SE INTEGRA EL ENVÍO ---
+    if partidos_validados:
+        # Creamos el mensaje con el estilo que ya conoces
+        ahora_vlc = datetime.now(pytz.timezone("America/Caracas")).strftime('%d/%m/%Y %H:%M')
+        mensaje_final = f"⚽ **REPORTE CENTINELA - {ahora_vlc}**\n"
+        mensaje_final += "------------------------------------------\n"
+
+        # Agrupamos por niveles para el mensaje
+        for nivel in cupos.keys():
+            partidos_nivel = [part for part in partidos_validados if part['color'] == nivel]
+            if partidos_nivel:
+                mensaje_final += f"\n**{nivel}:**\n"
+                for pn in partidos_nivel:
+                    mensaje_final += f"• 🕒 {pn['hora']} | {pn['h']} vs {pn['a']} | **{pn['letra']}** ({pn['p_val']}%)\n"
+                mensaje_final += "------------------------------------------\n"
+
+        # Enviamos el mensaje construido al CHAT_ID del canal
+        bot.send_message(CHAT_ID_CANAL, mensaje_final, parse_mode="Markdown")
     else:
-        bot.send_message(CHAT_ID_CANAL, f"⚠️ No se hallaron juegos válidos para {fecha_api} (Filtros: Países Top/Niveles).")
+        print("Escaneo finalizado: No se encontraron oportunidades que cumplan el protocolo.")
 
 # --- FLUJO WEB ---
 if not os.getenv("GITHUB_ACTIONS") == "true":
@@ -698,7 +757,7 @@ with tab_api:
         with st.spinner("Escaneando e integrando Protocolo Maestro..."): 
             partidos_encontrados = buscar_partidos_fecha(f_input, tz_input)
             if partidos_encontrados:
-                procesar_datos_diarios(partidos_encontrados)
+                procesar_escaneo_api_automatico(partidos_encontrados)
                 st.session_state.lista_partidos = partidos_encontrados
                 st.success(f"✅ Se procesaron {len(partidos_encontrados)} partidos con éxito.")
             else:
@@ -740,32 +799,32 @@ with tab_api:
             st.write(f"{p['color']} | 🕒 {p['hora']} | {'🔴 **EN VIVO:** ' if p['live'] else ''}{p['h']} vs {p['a']} | {p['pais']} - {p['liga']} | **λ:** {lambda_val:.2f}")
 
 # --- BLOQUE FINAL (FUERA DE TABS) ---
-st.markdown("---")
-with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
-    mem = cargar_memoria_bot()
-    st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
+    st.markdown("---")
+    with st.expander("🤖 ESTADO DEL BOT CENTINELA"):
+        mem = cargar_memoria_bot()
+        st.write(f"Lote actual: {mem.get('ultimo_lote', 0)} | ID Canal: `{CHAT_ID_CANAL}`")
 
-if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
-    mem_actual = cargar_memoria_bot()
-    nueva_memoria = {
-        "ultimo_lote": 0, 
-        "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
-        "enviados": [], 
-        "acertados": 0, 
-        "fallados": 0, 
-        "patrones_aprendizaje": mem_actual.get('patrones_aprendizaje', {
-            "inercia_baja_falla": 0,
-            "saturacion_techo_exito": 0,
-            "analisis_fallos_ligas": {}, 
-            "historial_ajuste_lambda": [] 
-        }),
-        "reporte_enviado": False,
-        "memoria_ligas": mem_actual.get('memoria_ligas', {}) # Mantiene el conocimiento de ligas
-    }
-    guardar_memoria_bot(nueva_memoria)
-    st.success("✅ Reset completado. Se mantiene historial de fallos.")
-    st.rerun()
+    if st.button("LIMPIAR MEMORIA (RESET DIARIO)"):
+        mem_actual = cargar_memoria_bot()
+        nueva_memoria = {
+            "ultimo_lote": 0, 
+            "fecha_actual": datetime.now(pytz.timezone("America/Caracas")).strftime("%Y-%m-%d"), 
+            "enviados": [], 
+            "acertados": 0, 
+            "fallados": 0, 
+            "patrones_aprendizaje": mem_actual.get('patrones_aprendizaje', {
+                "inercia_baja_falla": 0,
+                "saturacion_techo_exito": 0,
+                "analisis_fallos_ligas": {}, 
+                "historial_ajuste_lambda": [] 
+            }),
+            "reporte_enviado": False,
+            "memoria_ligas": mem_actual.get('memoria_ligas', {}) # Mantiene el conocimiento de ligas
+        }
+        guardar_memoria_bot(nueva_memoria)
+        st.success("✅ Reset completado. Se mantiene historial de fallos.")
+        st.rerun()
 
-if __name__ == "__main__":
-    if os.getenv("GITHUB_ACTIONS") == "true": 
-        ejecutar_analisis_automatico()
+    if __name__ == "__main__":
+        if os.getenv("GITHUB_ACTIONS") == "true": 
+            ejecutar_analisis_automatico()
