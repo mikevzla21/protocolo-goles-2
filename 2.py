@@ -842,6 +842,6 @@ with tab_api:
         st.success("✅ Reset completado. Se mantiene historial de fallos.")
         st.rerun()
 
-    if __name__ == "__main__":
-        if os.getenv("GITHUB_ACTIONS") == "true": 
-            ejecutar_analisis_automatico()
+if __name__ == "__main__":
+    if os.getenv("GITHUB_ACTIONS") == "true": 
+        ejecutar_analisis_automatico()
