@@ -843,5 +843,5 @@ with tab_api:
         st.rerun()
 
 if __name__ == "__main__":
-    if os.getenv("GITHUB_ACTIONS") == "true": 
-        ejecutar_analisis_automatico()
+    if os.getenv("GITHUB_ACTIONS") == "true": 
+        ejecutar_analisis_automatico()
