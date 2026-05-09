@@ -313,7 +313,7 @@ def enviar_reporte_maestro_organizado(lista_partidos):
 def obtener_stats_maestras(team_id, league_id):
     url = "https://v3.football.api-sports.io/teams/statistics"
     # Ajustamos a la temporada actual
-    params = {"league": league_id, "season": 2024, "team": team_id}
+    params = {"league": league_id, "season": 2025, "team": team_id}
     headers = {'x-apisports-key': MI_KEY_PRIVADA}
     try:
         r = requests.get(url, headers=headers, params=params, timeout=10).json()
