@@ -37,27 +37,30 @@ def ejecutar_analisis_automatico():
         if len(cupos.get(color, [])) >= 10:
             continue
         
-        # OBTENCIÓN DE DATOS REALES (Para evitar el 0.00)
-        # Usamos la función de estadísticas que ya tienes o que debes mapear
         try:
-            # Simulamos la carga de stats desde la API para el cálculo
-            # f_h = goles favor local, a_h = goles contra local, etc.
-            f_h, a_h = obtener_stats_maestras(p['h_id'], p['l_id'])
-            f_a, a_a = obtener_stats_maestras(p['a_id'], p['l_id'])
+            # Usamos tus variables exactas y la lógica de la temporada 2025
+            fh, ah = obtener_stats_maestras(p['h_id'], p['l_id'])
+            fv, av = obtener_stats_maestras(p['a_id'], p['l_id'])
             
-            l_total = (f_h + a_a + a_h + f_a) / 2
+            l_total = (fh + av + fv + ah) / 2
             
             if l_total > 0:
-                # Llamada corregida con 3 argumentos
-                es_v, letra, p_25, p_15 = motor_logico_maestro(f_h, a_a, l_total)
+                # CORRECCIÓN: Recibimos los 6 valores que devuelve tu motor
+                etiq, es_v, letra, p_15, p_25, lt_final = motor_logico_maestro(fh, av, l_total)
                 
                 if es_v:
-                    p.update({'lambda_total': l_total, 'letra': letra, 'p_val': p_25})
+                    p.update({
+                        'lambda_total': l_total, 
+                        'letra': letra, 
+                        'p_val': p_25,
+                        'etiq_reporte': etiq
+                    })
+                    # Aquí usamos cupos, NO partidos_validados, para que no dé error
                     cupos[color].append(p)
-        except:
+        except Exception as e:
             continue
 
-    # Envío a Telegram
+    # Envío a Telegram usando tu bucle de niveles
     for nivel, picks in cupos.items():
         if picks:
             msg = f"🏆 **PRONÓSTICOS NIVEL {nivel}**\n"
