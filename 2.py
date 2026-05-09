@@ -138,12 +138,12 @@ def procesar_escaneo_api_automatico(partidos_api):
         l_total = (fh + av + fv + ah) / 2
         
         # 3. Motor lógico
-        etiq, es_value, letra, o15, o25, lt_final = motor_logico_maestro(0, 0, l_total)
-        
+        etiq, es_value, letra, p_15, p_25, lt_final = motor_logico_maestro(fh, av, l_total)
+
         # --- ACTUALIZACIÓN PARA LA WEB (SIEMPRE SE EJECUTA) ---
         p.update({
             'letra': letra,
-            'p_val': round(o25),
+            'p_val': p_25,
             'lambda_total': l_total, 
             'etiq_reporte': etiq
         })
